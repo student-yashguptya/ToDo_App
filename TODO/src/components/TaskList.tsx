@@ -1,8 +1,8 @@
 import { Text, View, RefreshControl } from 'react-native'
+import Animated, { FadeInUp } from 'react-native-reanimated'
 import DraggableFlatList from 'react-native-draggable-flatlist'
 import { Task } from '../types/task'
 import { TaskItem } from './TaskItem'
-
 
 interface Props {
   tasks: Task[]
@@ -23,11 +23,14 @@ export function TaskList({
 }: Props) {
   if (tasks.length === 0 && !refreshing) {
     return (
-      <View className="flex-1 items-center justify-center">
+      <Animated.View
+        entering={FadeInUp}
+        className="flex-1 items-center justify-center"
+      >
         <Text className="text-gray-400">
           No tasks yet. Pull down to refresh.
         </Text>
-      </View>
+      </Animated.View>
     )
   }
 

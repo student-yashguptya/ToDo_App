@@ -12,7 +12,7 @@ export function TotalDuration({ tasks }: Props) {
   )
 
   const hours = Math.floor(totalMinutes / 60)
-  const minutes = totalMinutes % 60
+  const minutes = totalMinutes % 50
 
   return (
     <View className="px-4 pb-2">

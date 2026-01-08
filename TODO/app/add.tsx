@@ -1,11 +1,16 @@
 import { View, Text } from 'react-native'
 import { useState } from 'react'
+import Animated, {
+  FadeInDown,
+  FadeInUp,
+} from 'react-native-reanimated'
 import { router } from 'expo-router'
 import { Input } from '../src/components/ui/Input'
 import { Button } from '../src/components/ui/Button'
 import { useTasks } from '../src/context/TaskContext'
 import { SubTaskEditor } from '../src/components/SubTaskEditor'
 import { SubTask } from '../src/types/task'
+import { SuccessCheck } from '../src/components/ui/SuccessCheck'
 
 export default function AddTask() {
   const { addTask } = useTasks()
@@ -15,71 +20,71 @@ export default function AddTask() {
   const [minutes, setMinutes] = useState('30')
   const [category, setCategory] = useState('default')
   const [subtasks, setSubtasks] = useState<SubTask[]>([])
+  const [saved, setSaved] = useState(false)
 
   const handleSave = () => {
-    if (!title.trim()) return
-
-    const totalMinutes =
+    const total =
       Number(hours || 0) * 60 + Number(minutes || 0)
 
-    if (totalMinutes <= 0) return
+    if (!title.trim() || total <= 0) return
 
-    addTask(
-      title.trim(),
-      totalMinutes,
-      category,
-      subtasks
-    )
+    addTask(title.trim(), total, category, subtasks)
+    setSaved(true)
 
-    router.back()
+    setTimeout(() => router.back(), 800)
   }
 
   return (
     <View className="flex-1 bg-white px-4 pt-6">
-      <Text className="text-xl font-bold mb-4">Add Task</Text>
+      {saved && <SuccessCheck />}
 
-      {/* Task title */}
-      <Input
-        placeholder="Task title"
-        value={title}
-        onChangeText={setTitle}
-      />
+      <Animated.Text
+        entering={FadeInDown}
+        className="text-xl font-bold mb-4"
+      >
+        Add Task
+      </Animated.Text>
 
-      {/* Category (simple for now) */}
-      <Input
-        className="mt-3"
-        placeholder="Category (e.g. Work, Personal)"
-        value={category}
-        onChangeText={setCategory}
-      />
-
-      {/* Duration */}
-      <View className="flex-row mt-4 justify-between">
+      <Animated.View entering={FadeInUp.delay(100)}>
         <Input
-          className="w-[48%]"
-          placeholder="Hours"
-          keyboardType="number-pad"
-          value={hours}
-          onChangeText={setHours}
+          placeholder="Task title"
+          value={title}
+          onChangeText={setTitle}
         />
+
         <Input
-          className="w-[48%]"
-          placeholder="Minutes"
-          keyboardType="number-pad"
-          value={minutes}
-          onChangeText={setMinutes}
+          className="mt-3"
+          placeholder="Category"
+          value={category}
+          onChangeText={setCategory}
         />
-      </View>
 
-      {/* Subtasks */}
-      <SubTaskEditor
-        subtasks={subtasks}
-        onChange={setSubtasks}
-      />
+        <View className="flex-row mt-4 justify-between">
+          <Input
+            className="w-[48%]"
+            placeholder="Hours"
+            keyboardType="number-pad"
+            value={hours}
+            onChangeText={setHours}
+          />
+          <Input
+            className="w-[48%]"
+            placeholder="Minutes"
+            keyboardType="number-pad"
+            value={minutes}
+            onChangeText={setMinutes}
+          />
+        </View>
 
-      <View className="mt-6">
-        <Button title="Save Task" onPress={handleSave} />
-      </View>
+        <SubTaskEditor
+          subtasks={subtasks}
+          onChange={setSubtasks}
+        />
+
+        <View className="mt-6">
+          <Button title="Save Task" onPress={handleSave} />
+        </View>
+      </Animated.View>
     </View>
   )
 }

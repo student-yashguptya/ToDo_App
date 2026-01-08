@@ -1,4 +1,10 @@
-import { View, Text } from 'react-native'
+import { Text, View } from 'react-native'
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+} from 'react-native-reanimated'
+import { useEffect } from 'react'
 import { Task } from '../types/task'
 
 interface Props {
@@ -11,6 +17,16 @@ export function ProgressBar({ tasks }: Props) {
   const completed = tasks.filter(t => t.completed).length
   const percent = Math.round((completed / tasks.length) * 100)
 
+  const width = useSharedValue(0)
+
+  useEffect(() => {
+    width.value = withTiming(percent, { duration: 600 })
+  }, [percent])
+
+  const barStyle = useAnimatedStyle(() => ({
+    width: `${width.value}%`,
+  }))
+
   return (
     <View className="px-4 mb-2">
       <Text className="text-sm text-gray-600 mb-1">
@@ -18,9 +34,9 @@ export function ProgressBar({ tasks }: Props) {
       </Text>
 
       <View className="h-3 bg-gray-200 rounded-full overflow-hidden">
-        <View
+        <Animated.View
+          style={barStyle}
           className="h-full bg-blue-600"
-          style={{ width: `${percent}%` }}
         />
       </View>
     </View>
