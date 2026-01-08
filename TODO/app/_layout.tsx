@@ -1,10 +1,13 @@
 import { Stack } from 'expo-router'
-import { useNotifications } from '../src/hooks/useNotifications'
-import { useNotificationPermission } from '../src/hooks/useNotificationPermission'
+import { GestureHandlerRootView } from 'react-native-gesture-handler'
+import { TaskProvider } from '../src/context/TaskContext'
 import "../global.css"
 export default function Layout() {
-  useNotifications()
-  useNotificationPermission()
-
-  return <Stack screenOptions={{ headerShown: true }} />
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <TaskProvider>
+        <Stack screenOptions={{ headerTitleAlign: 'center' }} />
+      </TaskProvider>
+    </GestureHandlerRootView>
+  )
 }

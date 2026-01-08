@@ -1,4 +1,7 @@
-import { format } from 'date-fns'
+export function formatDuration(minutes: number): string {
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
 
-export const formatDateTime = (date: string) =>
-  format(new Date(date), 'dd MMM yyyy, hh:mm a')
+  if (h > 0) return `${h}h ${m}m`
+  return `${m}m`
+}

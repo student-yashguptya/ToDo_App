@@ -3,22 +3,15 @@ import { Pressable, Text } from 'react-native'
 interface Props {
   title: string
   onPress: () => void
-  variant?: 'primary' | 'secondary'
 }
 
-export function Button({ title, onPress, variant = 'primary' }: Props) {
+export function Button({ title, onPress }: Props) {
   return (
     <Pressable
       onPress={onPress}
-      className={`p-4 rounded-xl ${
-        variant === 'primary' ? 'bg-blue-600' : 'bg-gray-200'
-      }`}
+      className="bg-blue-600 py-3 rounded-xl items-center"
     >
-      <Text
-        className={`text-center font-semibold ${
-          variant === 'primary' ? 'text-white' : 'text-black'
-        }`}
-      >
+      <Text className="text-white font-semibold text-base">
         {title}
       </Text>
     </Pressable>

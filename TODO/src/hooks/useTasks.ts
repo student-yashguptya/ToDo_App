@@ -1,44 +1,70 @@
 import { useEffect, useState } from 'react'
 import { Task } from '../types/task'
-import { storageService } from '../services/storageService'
-import { STORAGE_KEYS } from '../constants/storageKeys'
-import * as Crypto from 'expo-crypto'
+import { loadTasks, saveTasks } from '../storage/taskStorage'
 
 export function useTasks() {
   const [tasks, setTasks] = useState<Task[]>([])
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    storageService.get<Task[]>(STORAGE_KEYS.TASKS).then(stored => {
-      if (stored) setTasks(stored)
+    loadTasks().then(stored => {
+      setTasks(stored)
+      setLoading(false)
     })
   }, [])
 
-  const persist = (data: Task[]) => {
-    setTasks(data)
-    storageService.set(STORAGE_KEYS.TASKS, data)
+  const persist = (next: Task[]) => {
+    setTasks(next)
+    saveTasks(next)
   }
 
-  const addTask = (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => {
-    const now = new Date().toISOString()
+  const updateTask = (id: string, title: string, durationMinutes: number) => {
+  persist(
+    tasks.map(task =>
+      task.id === id
+        ? { ...task, title, durationMinutes }
+        : task
+    )
+  )
+}
 
-    persist([
-      ...tasks,
-      {
-        ...task,
-        id: Crypto.randomUUID(), // ✅ SAFE
-        createdAt: now,
-        updatedAt: now,
-      },
-    ])
+
+  const addTask = (title: string, durationMinutes: number) => {
+  const newTask: Task = {
+    id: Date.now().toString(),
+    title,
+    completed: false,
+    createdAt: Date.now(),
+    durationMinutes,
   }
 
-  const updateTask = (task: Task) => {
-    persist(tasks.map(t => (t.id === task.id ? task : t)))
+  persist([newTask, ...tasks])
+}
+
+
+  const toggleTask = (id: string) => {
+    persist(
+      tasks.map(task =>
+        task.id === id
+          ? { ...task, completed: !task.completed }
+          : task
+      )
+    )
   }
 
+  
   const deleteTask = (id: string) => {
-    persist(tasks.filter(t => t.id !== id))
+    persist(tasks.filter(task => task.id !== id))
   }
 
-  return { tasks, addTask, updateTask, deleteTask }
+ return {
+  tasks,
+  loading,
+  addTask,
+  toggleTask,
+  deleteTask,
+  updateTask,
+}
+
+
 }

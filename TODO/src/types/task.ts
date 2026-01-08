@@ -1,10 +1,16 @@
+export interface SubTask {
+  id: string
+  title: string
+  completed: boolean
+}
+
 export interface Task {
   id: string
   title: string
-  description?: string
-  categoryId: string
-  deadline: string
-  createdAt: string
-  updatedAt: string
   completed: boolean
+  createdAt: number
+  durationMinutes: number
+  subtasks: SubTask[]
+  category: string
+
 }
