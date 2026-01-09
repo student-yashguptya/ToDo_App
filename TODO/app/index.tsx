@@ -52,6 +52,7 @@ export default function Home() {
     deleteTask,
     refresh,
     reorderTasks,
+    pauseTask,
   } = useTasks()
 
   /* ================================
@@ -59,6 +60,20 @@ export default function Home() {
   ================================ */
   const [selectedDate, setSelectedDate] =
     useState(todayKey())
+
+  /* 🔒 Auto-pause running tasks when switching day */
+  const handleDayChange = (nextDate: string) => {
+    tasks.forEach(t => {
+      if (
+        t.status === 'RUNNING' &&
+        t.scheduledDate !== nextDate
+      ) {
+        pauseTask(t.id)
+      }
+    })
+
+    setSelectedDate(nextDate)
+  }
 
   const filteredTasks = useMemo(
     () => tasks.filter(t => t.scheduledDate === selectedDate),
@@ -77,6 +92,20 @@ export default function Home() {
   }
 
   /* ================================
+     MIDNIGHT ROLLOVER (FOREGROUND)
+  ================================ */
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const today = todayKey()
+      setSelectedDate(prev =>
+        prev < today ? today : prev
+      )
+    }, 60_000)
+
+    return () => clearInterval(interval)
+  }, [])
+
+  /* ================================
      SHEET STATE
   ================================ */
   const [addOpen, setAddOpen] = useState(false)
@@ -84,7 +113,6 @@ export default function Home() {
   const [editTask, setEditTask] = useState<Task | null>(null)
 
   const sheetVisible = addOpen || statsOpen || !!editTask
-
   const translateY = useSharedValue(SHEET_HEIGHT)
 
   useEffect(() => {
@@ -137,7 +165,7 @@ export default function Home() {
         ================================ */}
         <View className="flex-row gap-3 px-4 pt-4 pb-2">
           <Pressable
-            onPress={() => setSelectedDate(todayKey())}
+            onPress={() => handleDayChange(todayKey())}
             className={`flex-1 py-2 rounded-xl ${
               selectedDate === todayKey()
                 ? 'bg-blue-600'
@@ -156,7 +184,9 @@ export default function Home() {
           </Pressable>
 
           <Pressable
-            onPress={() => setSelectedDate(tomorrowKey())}
+            onPress={() =>
+              handleDayChange(tomorrowKey())
+            }
             className={`flex-1 py-2 rounded-xl ${
               selectedDate === tomorrowKey()
                 ? 'bg-blue-600'
@@ -186,7 +216,6 @@ export default function Home() {
           onDelete={deleteTask}
           onReorder={handleReorder}
           onEdit={setEditTask}
-          
           ListHeaderComponent={
             <>
               <Animated.View

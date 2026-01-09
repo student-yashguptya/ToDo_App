@@ -1,6 +1,8 @@
-import { Text, View, RefreshControl } from 'react-native'
+import { Text, View, RefreshControl, } from 'react-native'
 import Animated, { FadeInUp } from 'react-native-reanimated'
-import DraggableFlatList, { ScaleDecorator } from 'react-native-draggable-flatlist'
+import DraggableFlatList, {
+  ScaleDecorator,
+} from 'react-native-draggable-flatlist'
 import { Task } from '../types/task'
 import { TaskItem } from './TaskItem'
 
@@ -25,13 +27,31 @@ export function TaskList({
   onEdit,
   ListHeaderComponent,
 }: Props) {
+  /* ================================
+     Drag safety rule
+     (disable drag if any task running)
+  ================================ */
+  const isAnyTaskRunning = tasks.some(
+    t => t.status === 'RUNNING'
+  )
+
   return (
     <DraggableFlatList
       data={tasks}
       keyExtractor={item => item.id}
+
+      /* ================================
+         Reorder handler
+      ================================ */
       onDragEnd={({ data }) => onReorder(data)}
+
+      /* ================================
+         Disable drag while timer running
+      ================================ */
+      activationDistance={isAnyTaskRunning ? 9999 : 12}
+
       ListHeaderComponent={ListHeaderComponent}
-      activationDistance={12}
+
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
@@ -39,11 +59,16 @@ export function TaskList({
           tintColor="#2563eb"
         />
       }
+
       contentContainerStyle={{
         paddingHorizontal: 16,
         paddingBottom: 40,
         flexGrow: tasks.length === 0 ? 1 : undefined,
       }}
+
+      /* ================================
+         Empty state
+      ================================ */
       ListEmptyComponent={
         !refreshing ? (
           <Animated.View
@@ -65,17 +90,33 @@ export function TaskList({
           </Animated.View>
         ) : null
       }
-      renderItem={({ item, drag }) => (
-        <ScaleDecorator>
-          <TaskItem
-            task={item}
-            onToggle={() => onToggle(item.id)}
-            onDelete={() => onDelete(item.id)}
-            onLongPress={drag}
-            onEdit={() => onEdit(item)}
-          />
-        </ScaleDecorator>
-      )}
+
+      /* ================================
+         Render item
+      ================================ */
+      renderItem={({ item, drag }) => {
+        const isCompleted =
+          item.status === 'COMPLETED'
+
+        return (
+          <ScaleDecorator>
+            <TaskItem
+              task={item}
+              onToggle={() => onToggle(item.id)}
+              onDelete={() => onDelete(item.id)}
+
+              /* 🔒 Allow drag only if safe */
+              onLongPress={
+                !isAnyTaskRunning && !isCompleted
+                  ? drag
+                  : undefined
+              }
+
+              onEdit={() => onEdit(item)}
+            />
+          </ScaleDecorator>
+        )
+      }}
     />
   )
 }

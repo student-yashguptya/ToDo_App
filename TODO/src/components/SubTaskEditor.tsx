@@ -9,6 +9,7 @@ import Animated, {
 } from 'react-native-reanimated'
 import * as Haptics from 'expo-haptics'
 import { SubTask } from '../types/task'
+import { generateId } from '../utils/id'
 
 interface Props {
   subtasks: SubTask[]
@@ -19,16 +20,32 @@ export function SubTaskEditor({ subtasks, onChange }: Props) {
   const [text, setText] = useState('')
   const scale = useSharedValue(1)
 
+  /* ================================
+     Add subtask (safe)
+  ================================ */
   const addSubtask = () => {
-    if (!text.trim()) return
+    const title = text.trim()
+    if (!title) return
+
+    // 🔒 Prevent exact duplicates
+    if (
+      subtasks.some(
+        st => st.title.toLowerCase() === title.toLowerCase()
+      )
+    ) {
+      Haptics.notificationAsync(
+        Haptics.NotificationFeedbackType.Warning
+      )
+      return
+    }
 
     Haptics.selectionAsync()
 
     onChange([
       ...subtasks,
       {
-        id: Date.now().toString(),
-        title: text.trim(),
+        id: generateId(),
+        title,
         completed: false,
       },
     ])
@@ -72,13 +89,20 @@ export function SubTaskEditor({ subtasks, onChange }: Props) {
           placeholder="Add a subtask…"
           placeholderTextColor="#9ca3af"
           className="flex-1 text-base text-gray-800 py-2"
+          returnKeyType="done"
+          onSubmitEditing={addSubtask}
+          blurOnSubmit={false}
         />
 
         <Animated.View style={buttonStyle}>
           <Pressable
             disabled={!text.trim()}
-            onPressIn={() => (scale.value = withSpring(0.92))}
-            onPressOut={() => (scale.value = withSpring(1))}
+            onPressIn={() =>
+              (scale.value = withSpring(0.92))
+            }
+            onPressOut={() =>
+              (scale.value = withSpring(1))
+            }
             onPress={addSubtask}
             className={`ml-2 px-4 py-2 rounded-xl ${
               text.trim()

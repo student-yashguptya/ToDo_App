@@ -10,7 +10,6 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
-  withTiming,
 } from 'react-native-reanimated'
 import * as Haptics from 'expo-haptics'
 import { SubTask } from '../types/task'
@@ -33,15 +32,17 @@ export function SubTaskList({
   if (subtasks.length === 0) return null
 
   const completed = subtasks.filter(s => s.completed).length
-  const percent = Math.round((completed / subtasks.length) * 100)
+  const percent = Math.round(
+    (completed / subtasks.length) * 100
+  )
 
   return (
     <View className="mt-3">
       {/* Progress bar */}
       <View className="h-2 bg-gray-200 rounded-full overflow-hidden mb-3 ml-2">
         <Animated.View
-          style={{ width: `${percent}%` }}
           className="h-full bg-emerald-500"
+          style={{ width: `${percent}%` }}
         />
       </View>
 
@@ -75,6 +76,7 @@ export function SubTaskList({
               >
                 <SubTaskRow
                   subtask={item}
+                  allSubtasks={subtasks}
                   onToggle={onToggle}
                   onEdit={onEdit}
                   onLongPress={drag}
@@ -94,11 +96,13 @@ export function SubTaskList({
 
 function SubTaskRow({
   subtask,
+  allSubtasks,
   onToggle,
   onEdit,
   onLongPress,
 }: {
   subtask: SubTask
+  allSubtasks: SubTask[]
   onToggle: (id: string) => void
   onEdit: (id: string, title: string) => void
   onLongPress: () => void
@@ -106,18 +110,49 @@ function SubTaskRow({
   const [editing, setEditing] = useState(false)
   const [text, setText] = useState(subtask.title)
 
-  const scale = useSharedValue(1)
-
   const checkboxStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: withSpring(subtask.completed ? 1.1 : 1) }],
+    transform: [
+      { scale: withSpring(subtask.completed ? 1.1 : 1) },
+    ],
     backgroundColor: subtask.completed
       ? '#10b981'
       : '#fff',
   }))
 
+  const commitEdit = () => {
+    const next = text.trim()
+
+    // ❌ empty title → revert
+    if (!next) {
+      setText(subtask.title)
+      setEditing(false)
+      return
+    }
+
+    // ❌ duplicate title → revert
+    if (
+      allSubtasks.some(
+        s =>
+          s.id !== subtask.id &&
+          s.title.toLowerCase() ===
+            next.toLowerCase()
+      )
+    ) {
+      Haptics.notificationAsync(
+        Haptics.NotificationFeedbackType.Warning
+      )
+      setText(subtask.title)
+      setEditing(false)
+      return
+    }
+
+    onEdit(subtask.id, next)
+    setEditing(false)
+  }
+
   return (
     <Pressable
-      onLongPress={onLongPress}
+      onLongPress={!editing ? onLongPress : undefined}
       className="flex-row items-center bg-white px-3 py-3 rounded-2xl mb-2 shadow-sm"
     >
       {/* Checkbox */}
@@ -138,10 +173,9 @@ function SubTaskRow({
           value={text}
           autoFocus
           onChangeText={setText}
-          onBlur={() => {
-            setEditing(false)
-            onEdit(subtask.id, text.trim())
-          }}
+          onBlur={commitEdit}
+          onSubmitEditing={commitEdit}
+          returnKeyType="done"
           className="flex-1 text-sm text-gray-800"
         />
       ) : (

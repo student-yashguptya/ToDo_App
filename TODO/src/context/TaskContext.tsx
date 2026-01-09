@@ -6,19 +6,22 @@ import {
   useRef,
   useState,
 } from 'react'
-import AsyncStorage from '@react-native-async-storage/async-storage'
-import { Task, SubTask, TaskCategory ,} from '../types/task'
+
+import { Task, SubTask, TaskCategory } from '../types/task'
 import { loadTasks, saveTasks } from '../storage/taskStorage'
+import { loadFocusHistory, saveFocusHistory } from '../storage/focusStorage'
 import { playAlarm } from '../services/alarmSound'
 import { generateId } from '../utils/id'
 
 /* ================================
-   Focus history
+   Date helpers
 ================================ */
-const FOCUS_KEY = 'FOCUS_HISTORY'
-type FocusHistory = Record<string, number>
-
 const todayKey = () => new Date().toISOString().slice(0, 10)
+const tomorrowKey = () => {
+  const d = new Date()
+  d.setDate(d.getDate() + 1)
+  return d.toISOString().slice(0, 10)
+}
 
 /* ================================
    Context
@@ -27,24 +30,23 @@ interface TaskContextValue {
   tasks: Task[]
   loading: boolean
   refreshing: boolean
-
   focusedToday: number
   weeklyFocus: { date: string; seconds: number }[]
 
-addTask: (
-  title: string,
-  duration: number,
-  category: TaskCategory,
-  subtasks?: SubTask[],
-  scheduledDate?: string
-) => void
-
+  addTask: (
+    title: string,
+    duration: number,
+    category: TaskCategory,
+    subtasks?: SubTask[],
+    scheduledDate?: string
+  ) => void
 
   updateTask: (
     id: string,
     title: string,
     duration: number,
-    category: TaskCategory
+    category: TaskCategory,
+    subtasks?: SubTask[]
   ) => void
 
   toggleTask: (id: string) => void
@@ -73,14 +75,16 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
-  const timers = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map())
-
-  const [focusHistory, setFocusHistory] = useState<FocusHistory>({})
-  const focusRef = useRef<FocusHistory>({})
+  /* ================================
+     Focus tracking
+  ================================ */
+  const [focusHistory, setFocusHistory] =
+    useState<Record<string, number>>({})
+  const focusRef = useRef<Record<string, number>>({})
   const saveCounter = useRef(0)
 
   /* ================================
-     NORMALIZE (📅 ADD DAY SUPPORT)
+     Normalize (NO AUTO-COMPLETE)
   ================================ */
   const normalize = (raw: Task[]): Task[] => {
     const seen = new Set<string>()
@@ -93,16 +97,21 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       return {
         ...task,
         id,
-        scheduledDate: task.scheduledDate ?? todayKey(), // 📅 NEW
+        scheduledDate: task.scheduledDate ?? todayKey(),
+        category: task.category ?? 'personal',
+        exhaustedOn: task.exhaustedOn,
+
         subtasks: (task.subtasks ?? []).map(st => ({
           ...st,
           id: st.id || generateId(),
+          completed: st.completed ?? false,
         })),
-        category: task.category ?? 'personal',
         remainingMs:
           task.remainingMs ?? task.durationMinutes * 60_000,
-        running: false,
-        completed: task.completed ?? false,
+
+        status: task.status ?? 'PAUSED',
+        completed: task.status === 'COMPLETED',
+        running: task.status === 'RUNNING',
       }
     })
   }
@@ -121,22 +130,28 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const init = async () => {
       setLoading(true)
-      const raw = await loadTasks()
-      const fixed = normalize(raw)
+
+      const [rawTasks, focus] = await Promise.all([
+        loadTasks(),
+        loadFocusHistory(),
+      ])
+
+      const fixed = normalize(rawTasks)
       setTasks(fixed)
       await saveTasks(fixed)
+
+      setFocusHistory(focus)
+      focusRef.current = focus
+
       setLoading(false)
     }
 
     init()
-    loadFocusHistory()
-
-    return () => {
-      timers.current.forEach(clearInterval)
-      timers.current.clear()
-    }
   }, [])
 
+  /* ================================
+     REFRESH
+  ================================ */
   const refresh = async () => {
     setRefreshing(true)
     const raw = await loadTasks()
@@ -145,134 +160,176 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
   }
 
   /* ================================
-     FOCUS
+     TIMER LOOP (NO AUTO-COMPLETE)
   ================================ */
-  const loadFocusHistory = async () => {
-    const raw = await AsyncStorage.getItem(FOCUS_KEY)
-    const parsed = raw ? JSON.parse(raw) : {}
-    setFocusHistory(parsed)
-    focusRef.current = parsed
-  }
+  useEffect(() => {
+    const tick = setInterval(() => {
+      const now = Date.now()
+      const today = todayKey()
 
-  const persistFocusHistory = async () => {
-    await AsyncStorage.setItem(
-      FOCUS_KEY,
-      JSON.stringify(focusRef.current)
-    )
-  }
-
-  /* ================================
-     TIMER + AUTO-NEXT (SAME DAY)
-  ================================ */
-  const startTask = (task: Task) => {
-    if (timers.current.has(task.id)) return
-
-    persist(prev =>
-      prev.map(t =>
-        t.id === task.id ? { ...t, running: true } : t
-      )
-    )
-
-    const totalMs = task.durationMinutes * 60_000
-    const halfPoint = totalMs / 2
-
-    const interval = setInterval(() => {
-      setTasks(prev =>
+      persist(prev =>
         prev.map(t => {
-          if (t.id !== task.id) return t
-
-          const nextMs = (t.remainingMs ?? totalMs) - 1000
-
-          const key = todayKey()
-          focusRef.current[key] =
-            (focusRef.current[key] ?? 0) + 1
-
-          saveCounter.current++
-          if (saveCounter.current >= 10) {
-            saveCounter.current = 0
-            persistFocusHistory()
-            setFocusHistory({ ...focusRef.current })
-          }
-
           if (
-            t.remainingMs &&
-            t.remainingMs > halfPoint &&
-            nextMs <= halfPoint
+            t.status !== 'RUNNING' ||
+            t.scheduledDate !== today
+          )
+            return t
+
+          const elapsed = now - (t.lastResumedAt ?? now)
+          const totalMs = t.durationMinutes * 60_000
+          const prevRemaining = t.remainingMs ?? totalMs
+          const nextRemaining = Math.max(
+            prevRemaining - elapsed,
+            0
+          )
+
+          // 🔔 50% alarm
+          if (
+            prevRemaining > totalMs / 2 &&
+            nextRemaining <= totalMs / 2
           ) {
             playAlarm()
           }
 
-          if (nextMs <= 0) {
-            clearInterval(interval)
-            timers.current.delete(task.id)
+          // 📊 focus
+          focusRef.current[today] =
+            (focusRef.current[today] ?? 0) +
+            Math.floor(elapsed / 1000)
+
+          saveCounter.current++
+          if (saveCounter.current >= 10) {
+            saveCounter.current = 0
+            saveFocusHistory(focusRef.current)
+            setFocusHistory({ ...focusRef.current })
+          }
+
+          // ⏰ TIMER FINISHED (NOT COMPLETED)
+          if (nextRemaining === 0) {
             playAlarm()
-
-            // ⏭ AUTO-START NEXT TASK (SAME DAY ONLY)
-            setTimeout(() => {
-              setTasks(prevTasks => {
-                const index = prevTasks.findIndex(x => x.id === task.id)
-
-                const nextTask = prevTasks
-                  .slice(index + 1)
-                  .find(
-                    t =>
-                      !t.completed &&
-                      !t.running &&
-                      t.scheduledDate === task.scheduledDate
-                  )
-
-                if (nextTask) startTask(nextTask)
-                return prevTasks
-              })
-            }, 300)
-
             return {
               ...t,
               remainingMs: 0,
-              completed: true,
+              status: 'PAUSED',
               running: false,
+              exhaustedOn: today,
+              lastResumedAt: undefined,
             }
           }
 
-          return { ...t, remainingMs: nextMs }
+          return {
+            ...t,
+            remainingMs: nextRemaining,
+            lastResumedAt: now,
+          }
         })
       )
     }, 1000)
 
-    timers.current.set(task.id, interval)
-  }
+    return () => clearInterval(tick)
+  }, [])
+
+
+
+
+
+  /* ================================
+     TIMER CONTROLS
+  ================================ */
+ const startTask = (task: Task) => {
+  if (
+    task.scheduledDate !== todayKey() ||
+    (task.remainingMs ?? 0) === 0
+  )
+    return
+
+  persist(prev =>
+    prev.map(t =>
+      t.id === task.id
+        ? {
+            ...t,
+            status: 'RUNNING',
+            running: true,
+            lastResumedAt: Date.now(),
+            startedAt: t.startedAt ?? Date.now(),
+          }
+        : {
+            ...t,
+            status:
+              t.status === 'RUNNING' ? 'PAUSED' : t.status,
+            running: false,
+          }
+    )
+  )
+}
 
   const pauseTask = (taskId: string) => {
-    const timer = timers.current.get(taskId)
-    if (!timer) return
-    clearInterval(timer)
-    timers.current.delete(taskId)
-
     persist(prev =>
       prev.map(t =>
-        t.id === taskId ? { ...t, running: false } : t
+        t.id === taskId && t.status === 'RUNNING'
+          ? {
+              ...t,
+              status: 'PAUSED',
+              running: false,
+              lastResumedAt: undefined,
+            }
+          : t
       )
     )
   }
+ /* ================================
+   MIDNIGHT ROLLOVER (EXHAUSTED TASKS)
+================================ */
+useEffect(() => {
+  const interval = setInterval(() => {
+    const today = todayKey()
+    const tomorrow = tomorrowKey()
 
-  const resumeTask = (taskId: string) => {
-    const task = tasks.find(t => t.id === taskId)
-    if (task && !task.completed) startTask(task)
+    persist(prev =>
+      prev.map(t => {
+        // Completed tasks NEVER move
+        if (t.status === 'COMPLETED') return t
+
+        // Move only exhausted tasks from previous day
+        if (
+          t.exhaustedOn &&
+          t.exhaustedOn < today
+        ) {
+          return {
+            ...t,
+            scheduledDate: tomorrow,
+            exhaustedOn: undefined, // reset
+          }
+        }
+
+        return t
+      })
+    )
+  }, 60_000)
+
+  return () => clearInterval(interval)
+}, [])
+
+
+
+const resumeTask = (taskId: string) => {
+  const task = tasks.find(t => t.id === taskId)
+  if (
+    task &&
+    task.status !== 'COMPLETED' &&
+    (task.remainingMs ?? 0) > 0 &&
+    task.scheduledDate === todayKey()
+  ) {
+    startTask(task)
   }
+}
 
   const stopTask = (taskId: string) => {
-    const timer = timers.current.get(taskId)
-    if (timer) {
-      clearInterval(timer)
-      timers.current.delete(taskId)
-    }
-
+    pauseTask(taskId)
     persist(prev =>
       prev.map(t =>
         t.id === taskId
           ? {
               ...t,
-              running: false,
               remainingMs: t.durationMinutes * 60_000,
             }
           : t
@@ -281,97 +338,77 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
   }
 
   /* ================================
-     TASK CRUD
+     CRUD
   ================================ */
- const addTask = (
+  const addTask = (
+    title: string,
+    duration: number,
+    category: TaskCategory,
+    subtasks: SubTask[] = [],
+    scheduledDate?: string
+  ) => {
+    persist(prev => [
+      {
+        id: generateId(),
+        title,
+        durationMinutes: duration,
+        createdAt: Date.now(),
+        category,
+        subtasks,
+        scheduledDate: scheduledDate ?? todayKey(),
+        remainingMs: duration * 60_000,
+        status: 'PAUSED',
+        running: false,
+        completed: false,
+      },
+      ...prev,
+    ])
+  }
+
+const updateTask = (
+  id: string,
   title: string,
   duration: number,
   category: TaskCategory,
-  subtasks: SubTask[] = [],
-  scheduledDate?: string
+  subtasks?: SubTask[]
 ) => {
-  persist(prev => [
-    {
-      id: generateId(),
-      title,
-      durationMinutes: duration,
-      createdAt: Date.now(),
-      completed: false,
-      category,
-      subtasks: subtasks.map(st => ({
-        ...st,
-        id: st.id || generateId(),
-      })),
-      scheduledDate: scheduledDate ?? todayKey(), // ✅ SINGLE SOURCE OF TRUTH
-      remainingMs: duration * 60_000,
-      running: false,
-    },
-    ...prev,
-  ])
+  persist(prev =>
+    prev.map(t =>
+      t.id === id && t.status !== 'COMPLETED'
+        ? {
+            ...t,
+            title,
+            durationMinutes: duration,
+            category,
+            subtasks: subtasks ?? t.subtasks,
+          }
+        : t
+    )
+  )
 }
 
 
-  const updateTask = (
-    id: string,
-    title: string,
-    duration: number,
-    category: TaskCategory
-  ) => {
+  const toggleTask = (id: string) => {
     persist(prev =>
       prev.map(t =>
         t.id === id
           ? {
               ...t,
-              title,
-              durationMinutes: duration,
-              category,
-              remainingMs: duration * 60_000,
+              status: 'COMPLETED',
+              completed: true,
+              running: false,
+              remainingMs: 0,
             }
           : t
       )
     )
   }
 
- const toggleTask = (id: string) => {
-  persist(prev =>
-    prev.map(t => {
-      if (t.id !== id) return t
-
-      // ⏳ If unfinished → move to tomorrow
-      if (!t.completed && (t.remainingMs ?? 0) > 0) {
-        return {
-          ...t,
-          scheduledDate: tomorrowKey(), // 📅 move
-          remainingMs: t.durationMinutes * 60_000, // reset
-          running: false,
-          completed: false,
-        }
-      }
-
-      // ✅ Fully completed
-      return {
-        ...t,
-        completed: true,
-        running: false,
-        remainingMs: 0,
-      }
-    })
-  )
-}
-
-
   const deleteTask = (id: string) => {
-    stopTask(id)
     persist(prev => prev.filter(t => t.id !== id))
   }
 
   const reorderTasks = (next: Task[]) => persist(() => next)
-
-  const tomorrowKey = () => {
-  const d = new Date()
-  d.setDate(d.getDate() + 1)
-  return d.toISOString().slice(0, 10)
-}
 
   /* ================================
      SUBTASKS
@@ -392,25 +429,44 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
     )
   }
 
-  const toggleSubtask = (taskId: string, subtaskId: string) => {
-    persist(prev =>
-      prev.map(t => {
-        if (t.id !== taskId) return t
+  const recalcTaskCompletion = (task: Task): Task => {
+  if (task.subtasks.length === 0) return task
 
-        const subtasks = t.subtasks.map(st =>
-          st.id === subtaskId
-            ? { ...st, completed: !st.completed }
-            : st
-        )
+  const allDone = task.subtasks.every(st => st.completed)
 
-        return {
-          ...t,
-          subtasks,
-          completed: subtasks.every(st => st.completed),
-        }
-      })
-    )
+  if (allDone && task.status !== 'COMPLETED') {
+    return {
+      ...task,
+      status: 'COMPLETED',
+      completed: true,
+      running: false,
+      remainingMs: 0,
+    }
   }
+
+  return task
+}
+
+
+const toggleSubtask = (taskId: string, subtaskId: string) => {
+  persist(prev =>
+    prev.map(task => {
+      if (task.id !== taskId) return task
+
+      const subtasks = task.subtasks.map(st =>
+        st.id === subtaskId
+          ? { ...st, completed: !st.completed }
+          : st
+      )
+
+      return recalcTaskCompletion({
+        ...task,
+        subtasks,
+      })
+    })
+  )
+}
+
 
   const deleteSubtask = (taskId: string, subtaskId: string) => {
     persist(prev =>
@@ -431,14 +487,12 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
   const weeklyFocus = useMemo(() => {
     const out = []
     const now = new Date()
-
     for (let i = 6; i >= 0; i--) {
       const d = new Date(now)
       d.setDate(now.getDate() - i)
       const key = d.toISOString().slice(0, 10)
       out.push({ date: key, seconds: focusHistory[key] ?? 0 })
     }
-
     return out
   }, [focusHistory])
 
@@ -474,6 +528,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
 
 export function useTasks() {
   const ctx = useContext(TaskContext)
-  if (!ctx) throw new Error('useTasks must be used inside TaskProvider')
+  if (!ctx)
+    throw new Error('useTasks must be used inside TaskProvider')
   return ctx
 }

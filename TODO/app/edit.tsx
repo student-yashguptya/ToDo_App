@@ -1,12 +1,16 @@
-import { View, Text } from 'react-native'
+import { View, Text, Alert } from 'react-native'
 import { useState, useEffect } from 'react'
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated'
+
 import { Input } from '../src/components/ui/Input'
 import { Button } from '../src/components/ui/Button'
-import { useTasks } from '../src/context/TaskContext'
 import { SuccessCheck } from '../src/components/ui/SuccessCheck'
 import { BackButton } from '../src/components/ui/BackButton'
-import { Task } from '../src/types/task'
+
+import { SubTaskEditor } from '../src/components/SubTaskEditor'
+
+import { useTasks } from '../src/context/TaskContext'
+import { Task, SubTask } from '../src/types/task'
 
 export default function EditTask({
   task,
@@ -15,27 +19,55 @@ export default function EditTask({
   task: Task
   onClose: () => void
 }) {
-  const { updateTask } = useTasks()
+  const { updateTask, pauseTask } = useTasks()
 
   const [title, setTitle] = useState('')
   const [hours, setHours] = useState('0')
   const [minutes, setMinutes] = useState('0')
   const [saved, setSaved] = useState(false)
+  const [subtasks, setSubtasks] = useState<SubTask[]>([])
 
+  /* ================================
+     HARD BLOCK: COMPLETED TASK
+  ================================ */
   useEffect(() => {
-    if (task) {
-      setTitle(task.title)
-      setHours(String(Math.floor(task.durationMinutes / 60)))
-      setMinutes(String(task.durationMinutes % 60))
+    if (task.status === 'COMPLETED') {
+      Alert.alert(
+        'Task Completed',
+        'Completed tasks cannot be edited.',
+        [{ text: 'OK', onPress: onClose }]
+      )
+      return
     }
+
+    setTitle(task.title)
+    setHours(String(Math.floor(task.durationMinutes / 60)))
+    setMinutes(String(task.durationMinutes % 60))
+    setSubtasks(task.subtasks ?? [])
   }, [task])
 
-  const handleSave = () => {
+  /* ================================
+     SAVE HANDLER
+  ================================ */
+const handleSave = () => {
+  if (task.status === 'COMPLETED') return
+
+  const newDuration =
+    Number(hours || 0) * 60 + Number(minutes || 0)
+
+  if (!title.trim() || newDuration <= 0) return
+
+  if (task.status === 'RUNNING') {
+    pauseTask(task.id)
+  }
+
+  // ✅ SAVE SUBTASKS TOO
   updateTask(
     task.id,
     title.trim(),
-    Number(hours) * 60 + Number(minutes),
-    task.category
+    newDuration,
+    task.category,
+    subtasks
   )
 
   setSaved(true)
@@ -58,9 +90,8 @@ export default function EditTask({
             Edit Task
           </Text>
         </View>
-
         <Text className="text-sm text-orange-400">
-          Refine your focus ✨
+          Update task details ✨
         </Text>
       </Animated.View>
 
@@ -69,12 +100,14 @@ export default function EditTask({
         entering={FadeInUp.delay(120)}
         className="mx-4 bg-white rounded-3xl px-5 py-6 shadow-xl shadow-orange-200"
       >
+        {/* Title */}
         <Input
           placeholder="Task title"
           value={title}
           onChangeText={setTitle}
         />
 
+        {/* Duration */}
         <View className="flex-row justify-between mt-5">
           <Input
             className="w-[48%]"
@@ -92,6 +125,15 @@ export default function EditTask({
           />
         </View>
 
+        {/* Subtasks (ADD ONLY) */}
+        <View className="mt-4">
+          <SubTaskEditor
+            subtasks={subtasks}
+            onChange={setSubtasks}
+          />
+        </View>
+
+        {/* Save */}
         <View className="mt-8">
           <Button title="Save Changes" onPress={handleSave} />
         </View>

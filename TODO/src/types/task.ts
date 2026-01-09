@@ -19,8 +19,22 @@ export interface Task {
   category: TaskCategory
   scheduledDate: string // YYYY-MM-DD
 
-  // added (non-breaking)
+  /* ================================
+     TIMER STATE
+  ================================ */
   remainingMs?: number
   running?: boolean
   startedAt?: number
+  lastResumedAt?: number
+
+  /* ================================
+     STATUS
+  ================================ */
+  status?: 'PAUSED' | 'RUNNING' | 'COMPLETED'
+
+  /* ================================
+     🔑 EXHAUSTION TRACKING (NEW)
+     DO NOT REMOVE
+  ================================ */
+  exhaustedOn?: string // YYYY-MM-DD
 }

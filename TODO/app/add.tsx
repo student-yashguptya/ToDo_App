@@ -60,18 +60,21 @@ export default function AddTask({ onClose }: { onClose: () => void }) {
   const [saved, setSaved] = useState(false)
 
   /* ================================
-     SAVE HANDLER
+     SAVE HANDLER (FIXED)
   ================================ */
   const handleSave = () => {
     let totalMinutes = 0
 
     if (mode === 'time') {
-      totalMinutes =
-        Number(hours || 0) * 60 + Number(minutes || 0)
+      const h = Number(hours) || 0
+      const m = Number(minutes) || 0
+      totalMinutes = h * 60 + m
     } else {
-      totalMinutes = Number(days || 0) * 24 * 60
+      const d = Number(days) || 0
+      totalMinutes = d * 24 * 60
     }
 
+    // ❌ prevent invalid tasks
     if (!title.trim() || totalMinutes <= 0) return
 
     const scheduledDate =
@@ -96,7 +99,7 @@ export default function AddTask({ onClose }: { onClose: () => void }) {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       className="flex-1"
     >
-      <ScrollView>
+      <ScrollView keyboardShouldPersistTaps="handled">
         <View className="bg-orange-50 flex-1">
           {saved && <SuccessCheck />}
 
@@ -167,7 +170,7 @@ export default function AddTask({ onClose }: { onClose: () => void }) {
                 Category
               </Text>
 
-              <View className="flex-row gap-2">
+              <View className="flex-row gap-2 flex-wrap">
                 {CATEGORIES.map(cat => (
                   <Pressable
                     key={cat.value}
@@ -223,7 +226,7 @@ export default function AddTask({ onClose }: { onClose: () => void }) {
               </View>
 
               {mode === 'time' && (
-                <View className="flex-row">
+                <View className="flex-row justify-between">
                   <Input
                     className="w-[48%]"
                     placeholder="Hours"
