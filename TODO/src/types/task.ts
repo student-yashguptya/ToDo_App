@@ -1,3 +1,8 @@
+export type TaskCategory =
+  | 'personal'
+  | 'professional'
+  | 'study'
+
 export interface SubTask {
   id: string
   title: string
@@ -11,6 +16,10 @@ export interface Task {
   createdAt: number
   durationMinutes: number
   subtasks: SubTask[]
-  category: string
+  category: TaskCategory
 
+  // added (non-breaking)
+  remainingMs?: number
+  running?: boolean
+  startedAt?: number
 }

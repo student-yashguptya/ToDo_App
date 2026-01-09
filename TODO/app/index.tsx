@@ -1,5 +1,11 @@
-import { View, Text, Pressable, Modal, Dimensions } from 'react-native'
-import { useState } from 'react'
+import {
+  View,
+  Text,
+  Pressable,
+  Modal,
+  Dimensions,
+} from 'react-native'
+import { useState, useEffect } from 'react'
 import Animated, {
   FadeInDown,
   useSharedValue,
@@ -41,23 +47,39 @@ export default function Home() {
   const [statsOpen, setStatsOpen] = useState(false)
   const [editTask, setEditTask] = useState<Task | null>(null)
 
+  const sheetVisible = addOpen || statsOpen || !!editTask
+
   const translateY = useSharedValue(SHEET_HEIGHT)
 
-  const openSheet = () => {
-    translateY.value = withSpring(0, {
-      damping: 16,
-      stiffness: 140,
-    })
-  }
+  /* ================================
+     Open / Close Sheet
+  ================================ */
+  useEffect(() => {
+    if (sheetVisible) {
+      translateY.value = withSpring(0, {
+        damping: 16,
+        stiffness: 140,
+      })
+    } else {
+      translateY.value = SHEET_HEIGHT
+    }
+  }, [sheetVisible])
 
-  const closeSheet = (cb?: () => void) => {
+  const closeSheet = () => {
     translateY.value = withSpring(
       SHEET_HEIGHT,
       { damping: 18 },
-      () => cb && runOnJS(cb)()
+      () => {
+        runOnJS(setAddOpen)(false)
+        runOnJS(setStatsOpen)(false)
+        runOnJS(setEditTask)(null)
+      }
     )
   }
 
+  /* ================================
+     Gesture
+  ================================ */
   const panGesture = Gesture.Pan()
     .onUpdate(e => {
       if (e.translationY > 0) {
@@ -68,10 +90,7 @@ export default function Home() {
       if (e.translationY > 120) {
         runOnJS(closeSheet)()
       } else {
-        translateY.value = withSpring(0, {
-          damping: 14,
-          stiffness: 160,
-        })
+        translateY.value = withSpring(0)
       }
     })
 
@@ -83,7 +102,13 @@ export default function Home() {
 
   return (
     <SafeAreaView className="flex-1">
-      <LinearGradient colors={['#f8faff', '#eef2ff']} className="flex-1">
+      <LinearGradient
+        colors={['#f8faff', '#eef2ff']}
+        className="flex-1"
+      >
+        {/* ================================
+            TASK LIST (FULLY INTERACTIVE)
+        ================================ */}
         <TaskList
           tasks={tasks}
           refreshing={refreshing}
@@ -91,18 +116,17 @@ export default function Home() {
           onToggle={toggleTask}
           onDelete={deleteTask}
           onReorder={reorderTasks}
-          onEdit={(task: Task) => {
+          onEdit={task => {
             setEditTask(task)
-            openSheet()
           }}
           ListHeaderComponent={
             <>
               <Animated.View
-                entering={FadeInDown.duration(500)}
+                entering={FadeInDown.duration(400)}
                 className="px-5 pt-4 pb-4 flex-row justify-between items-center"
               >
                 <View>
-                  <Text className="text-3xl font-extrabold text-gray-900">
+                  <Text className="text-3xl font-extrabold">
                     My Tasks
                   </Text>
                   <Text className="text-gray-500 mt-1">
@@ -112,19 +136,13 @@ export default function Home() {
 
                 <View className="flex-row items-center gap-4">
                   <Pressable
-                    onPress={() => {
-                      setStatsOpen(true)
-                      openSheet()
-                    }}
+                    onPress={() => setStatsOpen(true)}
                   >
                     <Target size={26} color="#2563eb" />
                   </Pressable>
 
                   <Pressable
-                    onPress={() => {
-                      setAddOpen(true)
-                      openSheet()
-                    }}
+                    onPress={() => setAddOpen(true)}
                     className="bg-blue-600 px-4 py-2 rounded-full"
                   >
                     <Text className="text-white font-semibold">
@@ -134,8 +152,8 @@ export default function Home() {
                 </View>
               </Animated.View>
 
-              <View className="px-4 gap-3 pb-6">
-                <View className="bg-white rounded-2xl p-4 shadow-sm">
+              <View className="px-4 pb-6">
+                <View className="bg-white rounded-2xl p-4">
                   <TotalDuration tasks={tasks} />
                   <ProgressBar tasks={tasks} />
                 </View>
@@ -144,76 +162,59 @@ export default function Home() {
           }
         />
 
-        {(addOpen || statsOpen || editTask) && (
-          <Modal transparent animationType="none">
-            <Pressable
-              className="flex-1 bg-black/40"
-              onPress={() => {
-                closeSheet(() => {
-                  setAddOpen(false)
-                  setStatsOpen(false)
-                  setEditTask(null)
-                })
-              }}
-            />
+        {/* ================================
+            BOTTOM SHEET (ONLY WHEN OPEN)
+        ================================ */}
+        <Modal
+          transparent
+          animationType="none"
+          visible={sheetVisible}
+          onRequestClose={closeSheet}
+        >
+          <Pressable
+            className="flex-1 bg-black/40"
+            onPress={closeSheet}
+          />
 
-            <GestureDetector gesture={panGesture}>
-              <Animated.View
-                style={[
-                  {
-                    height: SHEET_HEIGHT,
-                    position: 'absolute',
-                    bottom: 0,
-                    width: '100%',
-                    backgroundColor: 'white',
-                    borderTopLeftRadius: 24,
-                    borderTopRightRadius: 24,
-                  },
-                  sheetStyle,
-                ]}
-              >
-                <View className="items-center py-3">
-                  <View className="w-12 h-1.5 bg-gray-300 rounded-full" />
+          <GestureDetector gesture={panGesture}>
+            <Animated.View
+              style={[
+                {
+                  height: SHEET_HEIGHT,
+                  position: 'absolute',
+                  bottom: 0,
+                  width: '100%',
+                  backgroundColor: 'white',
+                  borderTopLeftRadius: 24,
+                  borderTopRightRadius: 24,
+                },
+                sheetStyle,
+              ]}
+            >
+              <View className="items-center py-3">
+                <View className="w-12 h-1.5 bg-gray-300 rounded-full" />
+              </View>
+
+              {addOpen && (
+                <AddTask onClose={closeSheet} />
+              )}
+
+              {statsOpen && (
+                <View className="px-5 pb-10">
+                  <DailyFocusSummary />
+                  <WeeklyFocusReport />
                 </View>
+              )}
 
-                {addOpen && (
-                  <AddTask
-                    onClose={() =>
-                      closeSheet(() => setAddOpen(false))
-                    }
-                  />
-                )}
-
-                {statsOpen && (
-                  <View className="px-5 pb-10">
-                    <Text className="text-xl font-bold mb-4">
-                      Focus Stats
-                    </Text>
-
-                    <View className="gap-4">
-                      <View className="bg-blue-50 rounded-2xl p-4">
-                        <DailyFocusSummary />
-                      </View>
-
-                      <View className="bg-green-50 rounded-2xl p-4">
-                        <WeeklyFocusReport />
-                      </View>
-                    </View>
-                  </View>
-                )}
-
-                {editTask && (
-                  <EditTask
-                    task={editTask}
-                    onClose={() =>
-                      closeSheet(() => setEditTask(null))
-                    }
-                  />
-                )}
-              </Animated.View>
-            </GestureDetector>
-          </Modal>
-        )}
+              {editTask && (
+                <EditTask
+                  task={editTask}
+                  onClose={closeSheet}
+                />
+              )}
+            </Animated.View>
+          </GestureDetector>
+        </Modal>
       </LinearGradient>
     </SafeAreaView>
   )

@@ -31,15 +31,17 @@ export default function EditTask({
   }, [task])
 
   const handleSave = () => {
-    updateTask(
-      task.id,
-      title.trim(),
-      Number(hours) * 60 + Number(minutes)
-    )
+  updateTask(
+    task.id,
+    title.trim(),
+    Number(hours) * 60 + Number(minutes),
+    task.category
+  )
 
-    setSaved(true)
-    setTimeout(onClose, 900)
-  }
+  setSaved(true)
+  setTimeout(onClose, 900)
+}
+
 
   return (
     <View className="bg-orange-50 flex-1">

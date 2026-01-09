@@ -1,4 +1,4 @@
-let interval: NodeJS.Timeout | null = null
+let interval: ReturnType<typeof setInterval> | null = null
 let remainingMs = 0
 let onTick: ((ms: number) => void) | null = null
 let onHalf: (() => void) | null = null
@@ -46,7 +46,6 @@ export function stopTimer() {
 
 function run() {
   remainingMs -= 1000
-
   onTick?.(remainingMs)
 
   if (!halfTriggered && remainingMs <= totalMs / 2) {

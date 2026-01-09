@@ -7,40 +7,61 @@ export function useTasks() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    loadTasks().then(stored => {
-      setTasks(stored)
-      setLoading(false)
-    })
+    const init = async () => {
+      try {
+        const stored = await loadTasks()
+        setTasks(stored)
+      } catch (e) {
+        console.error('Failed to load tasks', e)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    init()
   }, [])
 
   const persist = (next: Task[]) => {
     setTasks(next)
-    saveTasks(next)
+    try {
+      saveTasks(next)
+    } catch (e) {
+      console.error('Failed to save tasks', e)
+    }
   }
 
-  const updateTask = (id: string, title: string, durationMinutes: number) => {
-  persist(
-    tasks.map(task =>
-      task.id === id
-        ? { ...task, title, durationMinutes }
-        : task
+  const addTask = (
+    title: string,
+    durationMinutes: number,
+    category: Task['category']
+  ) => {
+    const newTask: Task = {
+      id: Date.now().toString(),
+      title,
+      completed: false,
+      createdAt: Date.now(),
+      durationMinutes,
+      category,
+      subtasks: [],
+    }
+
+    persist([newTask, ...tasks])
+  }
+
+  const updateTask = (
+    id: string,
+    title: string,
+    durationMinutes: number,
+    category: Task['category']
+  ) => {
+    persist(
+      tasks.map(task =>
+        task.id === id
+          ? { ...task, title, durationMinutes, category }
+          : task
+      )
     )
-  )
-}
-
-
-  const addTask = (title: string, durationMinutes: number) => {
-  const newTask: Task = {
-    id: Date.now().toString(),
-    title,
-    completed: false,
-    createdAt: Date.now(),
-    durationMinutes,
   }
-
-  persist([newTask, ...tasks])
-}
-
 
   const toggleTask = (id: string) => {
     persist(
@@ -52,19 +73,16 @@ export function useTasks() {
     )
   }
 
-  
   const deleteTask = (id: string) => {
     persist(tasks.filter(task => task.id !== id))
   }
 
- return {
-  tasks,
-  loading,
-  addTask,
-  toggleTask,
-  deleteTask,
-  updateTask,
-}
-
-
+  return {
+    tasks,
+    loading,
+    addTask,
+    updateTask,
+    toggleTask,
+    deleteTask,
+  }
 }
