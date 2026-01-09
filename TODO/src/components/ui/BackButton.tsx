@@ -10,14 +10,28 @@ import { Ionicons } from '@expo/vector-icons'
 
 interface Props {
   title?: string
+  onPress?: () => void   // ✅ ADD THIS
 }
 
-export function BackButton({ title }: Props) {
+export function BackButton({ title, onPress }: Props) {
   const scale = useSharedValue(1)
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }))
+
+  const handlePress = () => {
+    Haptics.selectionAsync()
+
+    if (onPress) {
+      onPress() // ✅ Modal / bottom sheet close
+      return
+    }
+
+    if (router.canGoBack()) {
+      router.back() // ✅ Normal screen navigation
+    }
+  }
 
   return (
     <Animated.View style={animatedStyle}>
@@ -29,10 +43,7 @@ export function BackButton({ title }: Props) {
         onPressOut={() => {
           scale.value = withSpring(1)
         }}
-        onPress={() => {
-          Haptics.selectionAsync()
-          router.back()
-        }}
+        onPress={handlePress}
         className="flex-row items-center"
       >
         {/* Icon container */}
@@ -50,7 +61,7 @@ export function BackButton({ title }: Props) {
           <Ionicons
             name="chevron-back"
             size={24}
-            color="#f97316" // orange-500
+            color="#f97316"
           />
         </View>
 

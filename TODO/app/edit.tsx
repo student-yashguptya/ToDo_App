@@ -1,21 +1,21 @@
 import { View, Text } from 'react-native'
 import { useState, useEffect } from 'react'
-import Animated, {
-  FadeInDown,
-  FadeInUp,
-} from 'react-native-reanimated'
-import { router, useLocalSearchParams } from 'expo-router'
+import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated'
 import { Input } from '../src/components/ui/Input'
 import { Button } from '../src/components/ui/Button'
 import { useTasks } from '../src/context/TaskContext'
 import { SuccessCheck } from '../src/components/ui/SuccessCheck'
 import { BackButton } from '../src/components/ui/BackButton'
+import { Task } from '../src/types/task'
 
-
-export default function EditTask() {
-  const { id } = useLocalSearchParams<{ id: string }>()
-  const { tasks, updateTask } = useTasks()
-  const task = tasks.find(t => t.id === id)
+export default function EditTask({
+  task,
+  onClose,
+}: {
+  task: Task
+  onClose: () => void
+}) {
+  const { updateTask } = useTasks()
 
   const [title, setTitle] = useState('')
   const [hours, setHours] = useState('0')
@@ -30,8 +30,6 @@ export default function EditTask() {
     }
   }, [task])
 
-  if (!task) return null
-
   const handleSave = () => {
     updateTask(
       task.id,
@@ -40,26 +38,26 @@ export default function EditTask() {
     )
 
     setSaved(true)
-    setTimeout(() => router.back(), 900)
+    setTimeout(onClose, 900)
   }
 
   return (
-    <View className="flex-1 bg-orange-50">
+    <View className="bg-orange-50 flex-1">
       {saved && <SuccessCheck />}
 
       {/* Header */}
       <Animated.View
         entering={FadeInDown.duration(400)}
-        className="px-5 pt-10 pb-6"
+        className="px-5 pt-2 pb-6"
       >
-        <View className="flex-row items-center mb-6">
-  <BackButton />
-  <Text className="text-xl font-bold ml-3">
-    Edit Task
-  </Text>
-</View>
+        <View className="flex-row items-center mb-2">
+          <BackButton onPress={onClose} />
+          <Text className="text-xl font-bold ml-3">
+            Edit Task
+          </Text>
+        </View>
 
-        <Text className="text-sm text-orange-400 mt-1">
+        <Text className="text-sm text-orange-400">
           Refine your focus ✨
         </Text>
       </Animated.View>
@@ -69,14 +67,12 @@ export default function EditTask() {
         entering={FadeInUp.delay(120)}
         className="mx-4 bg-white rounded-3xl px-5 py-6 shadow-xl shadow-orange-200"
       >
-        {/* Title */}
         <Input
           placeholder="Task title"
           value={title}
           onChangeText={setTitle}
         />
 
-        {/* Duration */}
         <View className="flex-row justify-between mt-5">
           <Input
             className="w-[48%]"
@@ -94,12 +90,8 @@ export default function EditTask() {
           />
         </View>
 
-        {/* CTA */}
         <View className="mt-8">
-          <Button
-            title="Save Changes"
-            onPress={handleSave}
-          />
+          <Button title="Save Changes" onPress={handleSave} />
         </View>
       </Animated.View>
     </View>

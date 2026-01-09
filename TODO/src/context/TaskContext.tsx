@@ -1,14 +1,11 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { Task, SubTask } from '../types/task'
-import { loadTasks, saveTasks } from '../storage/taskStorage'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { Task, SubTask } from '../types/task';
+import { loadTasks, saveTasks } from '../storage/taskStorage';
 import {
-  startTimer,
-  pauseTimer,
-  resumeTimer,
-  stopTimer,
-} from '../services/taskTimer'
-import { playAlarm } from '../services/alarmSound'
-import AsyncStorage from '@react-native-async-storage/async-storage'
+  startTimer, pauseTimer, resumeTimer, stopTimer
+} from '../services/taskTimer';
+import { playAlarm } from '../services/alarmSound';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 /* ================================
    Focus history
@@ -25,6 +22,7 @@ const todayKey = () =>
 interface TaskContextValue {
   tasks: Task[]
   loading: boolean
+  refreshing: boolean
 
   activeTaskId: string | null
   remainingMs: number
@@ -63,14 +61,12 @@ interface TaskContextValue {
   stopTask: () => void
 }
 
-const TaskContext = createContext<TaskContextValue | null>(null)
+const TaskContext = createContext<TaskContextValue | null>(null);
 
-/* ================================
-   Provider
-================================ */
 export function TaskProvider({ children }: { children: React.ReactNode }) {
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
 
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
   const [remainingMs, setRemainingMs] = useState(0)
@@ -89,13 +85,15 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       category: t.category ?? 'default',
     }))
 
-  const persist = async (updater: (prev: Task[]) => Task[]) => {
+   const persist = async (updater: (prev: Task[]) => Task[]) => {
     setTasks(prev => {
-      const next = updater(prev)
-      saveTasks(next)
-      return next
-    })
-  }
+      const next = updater(prev);
+      saveTasks(next).catch(error => {
+        console.error("Failed to save tasks:", error);
+      });
+      return next;
+    });
+  };
 
   const completeTaskById = (taskId: string) => {
     persist(prev =>
@@ -104,24 +102,43 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       )
     )
   }
+   useEffect(() => {
+    refresh().catch(console.error);
+    loadFocusHistory().catch(console.error);
+
+    return () => {
+      stopTimer();
+    };
+  }, []);
 
   /* ---------- lifecycle ---------- */
 
   useEffect(() => {
-    refresh()
-    loadFocusHistory()
-
-    return () => {
-      stopTimer()
-    }
-  }, [])
-
-  const refresh = async () => {
+  const init = async () => {
     setLoading(true)
     const raw = await loadTasks()
     setTasks(normalize(raw))
     setLoading(false)
   }
+
+  init()
+  loadFocusHistory()
+
+  return () => stopTimer()
+}, [])
+
+  const refresh = async () => {
+  try {
+    setRefreshing(true)
+    const raw = await loadTasks()
+    setTasks(normalize(raw))
+  } catch (e) {
+    console.error('Refresh failed', e)
+  } finally {
+    setRefreshing(false)
+  }
+}
+
 
   const loadFocusHistory = async () => {
     const raw = await AsyncStorage.getItem(FOCUS_KEY)
@@ -244,8 +261,13 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
   }
 
   const deleteTask = (id: string) => {
-    persist(prev => prev.filter(t => t.id !== id))
+  if (id === activeTaskId) {
+    stopTask()
   }
+
+  persist(prev => prev.filter(t => t.id !== id))
+}
+
 
   const reorderTasks = (next: Task[]) => {
     persist(() => next)
@@ -329,6 +351,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
   return (
     <TaskContext.Provider
       value={{
+        refreshing,
         tasks,
         loading,
         activeTaskId,
@@ -357,9 +380,9 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function useTasks() {
-  const ctx = useContext(TaskContext)
+  const ctx = useContext(TaskContext);
   if (!ctx) {
-    throw new Error('useTasks must be used inside TaskProvider')
+    throw new Error('useTasks must be used inside TaskProvider');
   }
-  return ctx
+  return ctx;
 }
