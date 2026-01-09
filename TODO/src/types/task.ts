@@ -17,6 +17,7 @@ export interface Task {
   durationMinutes: number
   subtasks: SubTask[]
   category: TaskCategory
+  scheduledDate: string // YYYY-MM-DD
 
   // added (non-breaking)
   remainingMs?: number

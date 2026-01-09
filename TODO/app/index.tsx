@@ -5,7 +5,7 @@ import {
   Modal,
   Dimensions,
 } from 'react-native'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Animated, {
   FadeInDown,
   useSharedValue,
@@ -29,6 +29,17 @@ import AddTask from './add'
 import EditTask from './edit'
 import { Task } from '../src/types/task'
 
+/* ================================
+   DATE HELPERS
+================================ */
+const todayKey = () => new Date().toISOString().slice(0, 10)
+
+const tomorrowKey = () => {
+  const d = new Date()
+  d.setDate(d.getDate() + 1)
+  return d.toISOString().slice(0, 10)
+}
+
 const { height } = Dimensions.get('window')
 const SHEET_HEIGHT = height * 0.72
 
@@ -43,6 +54,31 @@ export default function Home() {
     reorderTasks,
   } = useTasks()
 
+  /* ================================
+     DAY FILTER
+  ================================ */
+  const [selectedDate, setSelectedDate] =
+    useState(todayKey())
+
+  const filteredTasks = useMemo(
+    () => tasks.filter(t => t.scheduledDate === selectedDate),
+    [tasks, selectedDate]
+  )
+
+  /* ================================
+     SAFE REORDER (DAY-ONLY)
+  ================================ */
+  const handleReorder = (nextDayTasks: Task[]) => {
+    const otherTasks = tasks.filter(
+      t => t.scheduledDate !== selectedDate
+    )
+
+    reorderTasks([...nextDayTasks, ...otherTasks])
+  }
+
+  /* ================================
+     SHEET STATE
+  ================================ */
   const [addOpen, setAddOpen] = useState(false)
   const [statsOpen, setStatsOpen] = useState(false)
   const [editTask, setEditTask] = useState<Task | null>(null)
@@ -51,18 +87,10 @@ export default function Home() {
 
   const translateY = useSharedValue(SHEET_HEIGHT)
 
-  /* ================================
-     Open / Close Sheet
-  ================================ */
   useEffect(() => {
-    if (sheetVisible) {
-      translateY.value = withSpring(0, {
-        damping: 16,
-        stiffness: 140,
-      })
-    } else {
-      translateY.value = SHEET_HEIGHT
-    }
+    translateY.value = sheetVisible
+      ? withSpring(0, { damping: 16, stiffness: 140 })
+      : SHEET_HEIGHT
   }, [sheetVisible])
 
   const closeSheet = () => {
@@ -78,13 +106,11 @@ export default function Home() {
   }
 
   /* ================================
-     Gesture
+     GESTURE
   ================================ */
   const panGesture = Gesture.Pan()
     .onUpdate(e => {
-      if (e.translationY > 0) {
-        translateY.value = e.translationY
-      }
+      if (e.translationY > 0) translateY.value = e.translationY
     })
     .onEnd(e => {
       if (e.translationY > 120) {
@@ -107,23 +133,65 @@ export default function Home() {
         className="flex-1"
       >
         {/* ================================
-            TASK LIST (FULLY INTERACTIVE)
+            DAY TOGGLE
+        ================================ */}
+        <View className="flex-row gap-3 px-4 pt-4 pb-2">
+          <Pressable
+            onPress={() => setSelectedDate(todayKey())}
+            className={`flex-1 py-2 rounded-xl ${
+              selectedDate === todayKey()
+                ? 'bg-blue-600'
+                : 'bg-white'
+            }`}
+          >
+            <Text
+              className={`text-center font-semibold ${
+                selectedDate === todayKey()
+                  ? 'text-white'
+                  : 'text-blue-600'
+              }`}
+            >
+              Today
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => setSelectedDate(tomorrowKey())}
+            className={`flex-1 py-2 rounded-xl ${
+              selectedDate === tomorrowKey()
+                ? 'bg-blue-600'
+                : 'bg-white'
+            }`}
+          >
+            <Text
+              className={`text-center font-semibold ${
+                selectedDate === tomorrowKey()
+                  ? 'text-white'
+                  : 'text-blue-600'
+              }`}
+            >
+              Tomorrow
+            </Text>
+          </Pressable>
+        </View>
+
+        {/* ================================
+            TASK LIST
         ================================ */}
         <TaskList
-          tasks={tasks}
+          tasks={filteredTasks}
           refreshing={refreshing}
           onRefresh={refresh}
           onToggle={toggleTask}
           onDelete={deleteTask}
-          onReorder={reorderTasks}
-          onEdit={task => {
-            setEditTask(task)
-          }}
+          onReorder={handleReorder}
+          onEdit={setEditTask}
+          
           ListHeaderComponent={
             <>
               <Animated.View
                 entering={FadeInDown.duration(400)}
-                className="px-5 pt-4 pb-4 flex-row justify-between items-center"
+                className="px-5 pt-2 pb-4 flex-row justify-between items-center"
               >
                 <View>
                   <Text className="text-3xl font-extrabold">
@@ -135,9 +203,7 @@ export default function Home() {
                 </View>
 
                 <View className="flex-row items-center gap-4">
-                  <Pressable
-                    onPress={() => setStatsOpen(true)}
-                  >
+                  <Pressable onPress={() => setStatsOpen(true)}>
                     <Target size={26} color="#2563eb" />
                   </Pressable>
 
@@ -154,8 +220,8 @@ export default function Home() {
 
               <View className="px-4 pb-6">
                 <View className="bg-white rounded-2xl p-4">
-                  <TotalDuration tasks={tasks} />
-                  <ProgressBar tasks={tasks} />
+                  <TotalDuration tasks={filteredTasks} />
+                  <ProgressBar tasks={filteredTasks} />
                 </View>
               </View>
             </>
@@ -163,14 +229,9 @@ export default function Home() {
         />
 
         {/* ================================
-            BOTTOM SHEET (ONLY WHEN OPEN)
+            BOTTOM SHEET
         ================================ */}
-        <Modal
-          transparent
-          animationType="none"
-          visible={sheetVisible}
-          onRequestClose={closeSheet}
-        >
+        <Modal transparent visible={sheetVisible}>
           <Pressable
             className="flex-1 bg-black/40"
             onPress={closeSheet}
@@ -195,17 +256,13 @@ export default function Home() {
                 <View className="w-12 h-1.5 bg-gray-300 rounded-full" />
               </View>
 
-              {addOpen && (
-                <AddTask onClose={closeSheet} />
-              )}
-
+              {addOpen && <AddTask onClose={closeSheet} />}
               {statsOpen && (
                 <View className="px-5 pb-10">
                   <DailyFocusSummary />
                   <WeeklyFocusReport />
                 </View>
               )}
-
               {editTask && (
                 <EditTask
                   task={editTask}

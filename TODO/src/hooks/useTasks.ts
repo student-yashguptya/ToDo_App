@@ -5,6 +5,7 @@ import { loadTasks, saveTasks } from '../storage/taskStorage'
 export function useTasks() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
+  const todayKey = () => new Date().toISOString().slice(0, 10)
 
   useEffect(() => {
     const init = async () => {
@@ -36,14 +37,16 @@ export function useTasks() {
     category: Task['category']
   ) => {
     const newTask: Task = {
-      id: Date.now().toString(),
-      title,
-      completed: false,
-      createdAt: Date.now(),
-      durationMinutes,
-      category,
-      subtasks: [],
-    }
+  id: Date.now().toString(),
+  title,
+  completed: false,
+  createdAt: Date.now(),
+  durationMinutes,
+  category,
+  subtasks: [],
+  scheduledDate: todayKey(), // ✅ REQUIRED FIELD
+}
+
 
     persist([newTask, ...tasks])
   }

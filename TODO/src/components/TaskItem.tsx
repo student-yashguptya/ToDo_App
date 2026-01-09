@@ -1,4 +1,9 @@
-import { Text, View, Pressable, Animated as RNAnimated } from 'react-native'
+import {
+  Text,
+  View,
+  Pressable,
+  Animated as RNAnimated,
+} from 'react-native'
 import { Swipeable } from 'react-native-gesture-handler'
 import Animated, { FadeInUp } from 'react-native-reanimated'
 import * as Haptics from 'expo-haptics'
@@ -6,7 +11,7 @@ import { Task } from '../types/task'
 import { formatDuration } from '../utils/date'
 import { formatMilliseconds } from '../utils/duration'
 import { useTasks } from '../context/TaskContext'
-import { memo, useEffect, useMemo, useRef } from 'react'
+import { memo, useEffect, useRef } from 'react'
 
 interface Props {
   task: Task
@@ -23,23 +28,22 @@ export const TaskItem = memo(function TaskItem({
   onLongPress,
   onEdit,
 }: Props) {
-  const {
-    startTask,
-    pauseTask,
-    resumeTask,
-    activeTaskId,
-    paused,
-  } = useTasks()
+  const { startTask, pauseTask, resumeTask } =
+    useTasks()
 
-  const isActive = useMemo(
-    () => activeTaskId === task.id,
-    [activeTaskId, task.id]
-  )
+  const isRunning = task.running
+  const isCompleted =
+    task.completed && task.remainingMs === 0
 
-  const isRunning = !!task.running
+  const movedToTomorrow =
+    !task.completed &&
+    (task.remainingMs ?? 0) ===
+      task.durationMinutes * 60_000 &&
+    task.scheduledDate !==
+      new Date().toISOString().slice(0, 10)
 
   /* ================================
-     SAFE GLOW (RN Animated)
+     Glow animation
   ================================ */
   const glow = useRef(new RNAnimated.Value(0)).current
 
@@ -71,7 +75,24 @@ export const TaskItem = memo(function TaskItem({
   })
 
   /* ================================
-     Swipe Delete (NO HOOKS)
+     COLORS
+  ================================ */
+  const backgroundColor = isCompleted
+    ? '#fee2e2' // 🔴 red
+    : movedToTomorrow
+    ? '#dcfce7' // 🟢 green
+    : isRunning
+    ? '#fef9c3' // 🟡 yellow
+    : '#ffffff'
+
+  const shadowColor = isCompleted
+    ? '#ef4444'
+    : movedToTomorrow
+    ? '#22c55e'
+    : '#facc15'
+
+  /* ================================
+     Swipe Delete
   ================================ */
   const renderRightActions = (_: any, dragX: any) => {
     const scale = dragX.interpolate({
@@ -121,22 +142,17 @@ export const TaskItem = memo(function TaskItem({
         >
           <RNAnimated.View
             style={{
-              shadowColor: '#facc15',
+              backgroundColor,
+              shadowColor,
               shadowRadius: 12,
               shadowOpacity,
               elevation: isRunning ? 6 : 1,
+              borderRadius: 16,
+              padding: 16,
+              marginBottom: 12,
             }}
-            className={`rounded-2xl px-4 py-4 mb-3 ${
-              isRunning ? 'bg-yellow-100' : 'bg-white'
-            }`}
           >
-            <Text
-              className={`text-lg font-semibold ${
-                task.completed
-                  ? 'line-through text-gray-400'
-                  : 'text-gray-900'
-              }`}
-            >
+            <Text className="text-lg font-semibold">
               {task.title}
             </Text>
 
@@ -144,49 +160,36 @@ export const TaskItem = memo(function TaskItem({
               ⏱ {formatDuration(task.durationMinutes)}
             </Text>
 
-            {isActive && task.remainingMs !== undefined && (
+            {!isCompleted && (
               <Text className="text-sm text-red-600 mt-1 font-semibold">
-                ⏳ {formatMilliseconds(task.remainingMs)}
+                ⏳ {formatMilliseconds(task.remainingMs ?? 0)}
               </Text>
             )}
 
-            {task.subtasks?.length > 0 && (
-              <View className="mt-2 ml-1">
-                {task.subtasks.map(st => (
-                  <Text
-                    key={st.id}
-                    className={`text-sm ${
-                      st.completed
-                        ? 'line-through text-gray-400'
-                        : 'text-gray-600'
-                    }`}
-                  >
-                    • {st.title}
-                  </Text>
-                ))}
-              </View>
+            {isCompleted && (
+              <Text className="text-sm font-bold text-red-600 mt-2">
+                ✅ Completed
+              </Text>
+            )}
+
+            {movedToTomorrow && (
+              <Text className="text-sm font-bold text-green-700 mt-2">
+                📅 Moved to Tomorrow
+              </Text>
             )}
 
             <View className="flex-row gap-4 mt-4">
-              {!isRunning && (
-                <Pressable
-                  onPress={() => {
-                    Haptics.selectionAsync()
-                    startTask(task)
-                  }}
-                >
+              {!isRunning && !isCompleted && (
+                <Pressable onPress={() => startTask(task)}>
                   <Text className="text-green-600 font-bold">
                     ▶ Start
                   </Text>
                 </Pressable>
               )}
 
-              {isRunning && !paused && (
+              {isRunning && (
                 <Pressable
-                  onPress={() => {
-                    Haptics.selectionAsync()
-                    pauseTask(task.id)
-                  }}
+                  onPress={() => pauseTask(task.id)}
                 >
                   <Text className="text-yellow-700 font-bold">
                     ⏸ Pause
@@ -194,29 +197,9 @@ export const TaskItem = memo(function TaskItem({
                 </Pressable>
               )}
 
-              {isRunning && paused && (
-                <Pressable
-                  onPress={() => {
-                    Haptics.selectionAsync()
-                    resumeTask(task.id)
-                  }}
-                >
-                  <Text className="text-green-700 font-bold">
-                    ▶ Resume
-                  </Text>
-                </Pressable>
-              )}
-
-              <Pressable
-                onPress={() => {
-                  Haptics.impactAsync(
-                    Haptics.ImpactFeedbackStyle.Light
-                  )
-                  onToggle()
-                }}
-              >
+              <Pressable onPress={onToggle}>
                 <Text className="text-blue-600 font-bold">
-                  {task.completed ? 'Undo' : 'Done'}
+                  Done
                 </Text>
               </Pressable>
             </View>
