@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { Task, SubTask } from '../types/task'
 import { loadTasks, saveTasks } from '../storage/taskStorage'
 import {
@@ -11,10 +11,10 @@ import { playAlarm } from '../services/alarmSound'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
 /* ================================
-   Focus history storage
+   Focus history
 ================================ */
 const FOCUS_KEY = 'FOCUS_HISTORY'
-type FocusHistory = Record<string, number> // YYYY-MM-DD -> seconds
+type FocusHistory = Record<string, number>
 
 const todayKey = () =>
   new Date().toISOString().slice(0, 10)
@@ -29,8 +29,8 @@ interface TaskContextValue {
   activeTaskId: string | null
   remainingMs: number
   paused: boolean
-  focusedToday: number
 
+  focusedToday: number
   weeklyFocus: { date: string; seconds: number }[]
 
   addTask: (
@@ -77,6 +77,8 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
   const [paused, setPaused] = useState(false)
 
   const [focusHistory, setFocusHistory] = useState<FocusHistory>({})
+  const focusRef = useRef<FocusHistory>({})
+  const saveCounter = useRef(0)
 
   /* ---------- helpers ---------- */
 
@@ -108,6 +110,10 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     refresh()
     loadFocusHistory()
+
+    return () => {
+      stopTimer()
+    }
   }, [])
 
   const refresh = async () => {
@@ -119,15 +125,19 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
 
   const loadFocusHistory = async () => {
     const raw = await AsyncStorage.getItem(FOCUS_KEY)
-    setFocusHistory(raw ? JSON.parse(raw) : {})
+    const parsed = raw ? JSON.parse(raw) : {}
+    setFocusHistory(parsed)
+    focusRef.current = parsed
   }
 
-  const saveFocusHistory = async (next: FocusHistory) => {
-    setFocusHistory(next)
-    await AsyncStorage.setItem(FOCUS_KEY, JSON.stringify(next))
+  const persistFocusHistory = async () => {
+    await AsyncStorage.setItem(
+      FOCUS_KEY,
+      JSON.stringify(focusRef.current)
+    )
   }
 
-  /* ---------- TIMER CONTROLS ---------- */
+  /* ---------- TIMER ---------- */
 
   const startTask = (task: Task) => {
     setActiveTaskId(task.id)
@@ -136,30 +146,35 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
     startTimer(
       task.durationMinutes,
 
-      // tick (every second)
+      // tick
       ms => {
         setRemainingMs(ms)
 
         const key = todayKey()
-        const next = {
-          ...focusHistory,
-          [key]: (focusHistory[key] ?? 0) + 1,
-        }
+        focusRef.current[key] =
+          (focusRef.current[key] ?? 0) + 1
 
-        saveFocusHistory(next)
+        saveCounter.current++
+
+        if (saveCounter.current >= 10) {
+          saveCounter.current = 0
+          persistFocusHistory()
+          setFocusHistory({ ...focusRef.current })
+        }
       },
 
-      // half-time alarm
+      // half
       async () => {
         await playAlarm()
       },
 
-      // full-time alarm → auto complete
+      // complete
       async () => {
         await playAlarm()
         completeTaskById(task.id)
         setActiveTaskId(null)
         setRemainingMs(0)
+        persistFocusHistory()
       }
     )
   }
@@ -246,11 +261,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
               ...task,
               subtasks: [
                 ...task.subtasks,
-                {
-                  id: Date.now().toString(),
-                  title,
-                  completed: false,
-                },
+                { id: Date.now().toString(), title, completed: false },
               ],
             }
           : task
@@ -286,18 +297,16 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
         task.id === taskId
           ? {
               ...task,
-              subtasks: task.subtasks.filter(
-                st => st.id !== subtaskId
-              ),
+              subtasks: task.subtasks.filter(st => st.id !== subtaskId),
             }
           : task
       )
     )
   }
 
-  /* ---------- WEEKLY FOCUS ---------- */
+  /* ---------- WEEKLY ---------- */
 
-  const weeklyFocus = (() => {
+  const weeklyFocus = useMemo(() => {
     const out = []
     const now = new Date()
 
@@ -313,7 +322,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
     }
 
     return out
-  })()
+  }, [focusHistory])
 
   const focusedToday = focusHistory[todayKey()] ?? 0
 

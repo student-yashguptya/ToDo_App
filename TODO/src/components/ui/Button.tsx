@@ -21,19 +21,15 @@ export function Button({ title, onPress }: Props) {
   return (
     <Animated.View style={animatedStyle}>
       <Pressable
-        onPressIn={() => {
-          scale.value = withSpring(0.96)
-        }}
-        onPressOut={() => {
-          scale.value = withSpring(1)
-        }}
+        onPressIn={() => (scale.value = withSpring(0.95))}
+        onPressOut={() => (scale.value = withSpring(1))}
         onPress={() => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
           onPress()
         }}
-        className="bg-blue-600 py-3 rounded-xl items-center active:opacity-90"
+        className="bg-orange-500 py-4 rounded-2xl items-center shadow-lg shadow-orange-300"
       >
-        <Text className="text-white font-semibold text-base">
+        <Text className="text-white font-bold text-base tracking-wide">
           {title}
         </Text>
       </Pressable>

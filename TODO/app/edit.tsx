@@ -1,11 +1,16 @@
 import { View, Text } from 'react-native'
 import { useState, useEffect } from 'react'
-import Animated, { FadeInUp } from 'react-native-reanimated'
+import Animated, {
+  FadeInDown,
+  FadeInUp,
+} from 'react-native-reanimated'
 import { router, useLocalSearchParams } from 'expo-router'
 import { Input } from '../src/components/ui/Input'
 import { Button } from '../src/components/ui/Button'
 import { useTasks } from '../src/context/TaskContext'
 import { SuccessCheck } from '../src/components/ui/SuccessCheck'
+import { BackButton } from '../src/components/ui/BackButton'
+
 
 export default function EditTask() {
   const { id } = useLocalSearchParams<{ id: string }>()
@@ -35,24 +40,44 @@ export default function EditTask() {
     )
 
     setSaved(true)
-    setTimeout(() => router.back(), 800)
+    setTimeout(() => router.back(), 900)
   }
 
   return (
-    <View className="flex-1 bg-white px-4 pt-6">
+    <View className="flex-1 bg-orange-50">
       {saved && <SuccessCheck />}
 
-      <Animated.Text
-        entering={FadeInUp}
-        className="text-xl font-bold mb-4"
+      {/* Header */}
+      <Animated.View
+        entering={FadeInDown.duration(400)}
+        className="px-5 pt-10 pb-6"
       >
-        Edit Task
-      </Animated.Text>
+        <View className="flex-row items-center mb-6">
+  <BackButton />
+  <Text className="text-xl font-bold ml-3">
+    Edit Task
+  </Text>
+</View>
 
-      <Animated.View entering={FadeInUp.delay(100)}>
-        <Input value={title} onChangeText={setTitle} />
+        <Text className="text-sm text-orange-400 mt-1">
+          Refine your focus ✨
+        </Text>
+      </Animated.View>
 
-        <View className="flex-row justify-between mt-4">
+      {/* Card */}
+      <Animated.View
+        entering={FadeInUp.delay(120)}
+        className="mx-4 bg-white rounded-3xl px-5 py-6 shadow-xl shadow-orange-200"
+      >
+        {/* Title */}
+        <Input
+          placeholder="Task title"
+          value={title}
+          onChangeText={setTitle}
+        />
+
+        {/* Duration */}
+        <View className="flex-row justify-between mt-5">
           <Input
             className="w-[48%]"
             placeholder="Hours"
@@ -69,7 +94,8 @@ export default function EditTask() {
           />
         </View>
 
-        <View className="mt-6">
+        {/* CTA */}
+        <View className="mt-8">
           <Button
             title="Save Changes"
             onPress={handleSave}
