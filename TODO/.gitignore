@@ -41,3 +41,9 @@ app-example
 # generated native folders
 /ios
 /android
+
+# Backend
+server/node_modules/
+server/todo.db
+server/todo.db-shm
+server/todo.db-wal

@@ -8,10 +8,11 @@ import {
 } from 'react'
 
 import { Task, SubTask, TaskCategory } from '../types/task'
-import { loadTasks, saveTasks } from '../storage/taskStorage'
-import { loadFocusHistory, saveFocusHistory } from '../storage/focusStorage'
+import { tasksApi, focusApi } from '../services/api'
 import { playAlarm } from '../services/alarmSound'
 import { generateId } from '../utils/id'
+import { getStoredToken } from '../services/api'
+
 
 /* ================================
    Date helpers
@@ -22,6 +23,7 @@ const tomorrowKey = () => {
   d.setDate(d.getDate() + 1)
   return d.toISOString().slice(0, 10)
 }
+
 
 /* ================================
    Context
@@ -84,98 +86,108 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
   const saveCounter = useRef(0)
 
   /* ================================
-     Normalize (NO AUTO-COMPLETE)
+     Normalize tasks from API
   ================================ */
-  const normalize = (raw: Task[]): Task[] => {
-    const seen = new Set<string>()
-
-    return raw.map(task => {
-      let id = task.id
-      if (!id || seen.has(id)) id = generateId()
-      seen.add(id)
-
-      return {
-        ...task,
-        id,
-        scheduledDate: task.scheduledDate ?? todayKey(),
-        category: task.category ?? 'personal',
-        exhaustedOn: task.exhaustedOn,
-
-        subtasks: (task.subtasks ?? []).map(st => ({
-          ...st,
-          id: st.id || generateId(),
-          completed: st.completed ?? false,
-        })),
-        remainingMs:
-          task.remainingMs ?? task.durationMinutes * 60_000,
-
-        status: task.status ?? 'PAUSED',
-        completed: task.status === 'COMPLETED',
-        running: task.status === 'RUNNING',
-      }
-    })
-  }
-
-  const persist = (updater: (prev: Task[]) => Task[]) => {
-    setTasks(prev => {
-      const next = updater(prev)
-      saveTasks(next).catch(console.error)
-      return next
-    })
+  const normalize = (raw: any[]): Task[] => {
+    return raw.map(task => ({
+      id: task.id,
+      title: task.title,
+      completed: task.completed ?? task.status === 'COMPLETED',
+      createdAt: task.createdAt,
+      durationMinutes: task.durationMinutes,
+      subtasks: (task.subtasks ?? []).map((st: any) => ({
+        id: st.id,
+        title: st.title,
+        completed: st.completed ?? false,
+      })),
+      category: task.category ?? 'personal',
+      scheduledDate: task.scheduledDate ?? todayKey(),
+      remainingMs: task.remainingMs ?? task.durationMinutes * 60_000,
+      status: task.status ?? 'PAUSED',
+      running: task.running ?? task.status === 'RUNNING',
+      startedAt: task.startedAt,
+      lastResumedAt: task.lastResumedAt,
+      exhaustedOn: task.exhaustedOn,
+    }))
   }
 
   /* ================================
      LOAD
   ================================ */
-  useEffect(() => {
-    const init = async () => {
-      setLoading(true)
+useEffect(() => {
+  let mounted = true
+
+  const init = async () => {
+    setLoading(true)
+
+    try {
+      const token = await getStoredToken()
+      if (!token) {
+        setTasks([])
+        setLoading(false)
+        return
+      }
 
       const [rawTasks, focus] = await Promise.all([
-        loadTasks(),
-        loadFocusHistory(),
+        tasksApi.getTasks(),
+        focusApi.getFocusHistory(),
       ])
 
-      const fixed = normalize(rawTasks)
-      setTasks(fixed)
-      await saveTasks(fixed)
+      if (!mounted) return
 
+      setTasks(normalize(rawTasks))
       setFocusHistory(focus)
       focusRef.current = focus
-
-      setLoading(false)
+    } catch (error) {
+      console.error('Failed to load tasks:', error)
+    } finally {
+      if (mounted) setLoading(false)
     }
+  }
 
-    init()
-  }, [])
+  init()
+  return () => {
+    mounted = false
+  }
+}, [])
+
 
   /* ================================
      REFRESH
   ================================ */
   const refresh = async () => {
     setRefreshing(true)
-    const raw = await loadTasks()
-    setTasks(normalize(raw))
-    setRefreshing(false)
+    try {
+      const raw = await tasksApi.getTasks()
+      setTasks(normalize(raw))
+    } catch (error) {
+      console.error('Failed to refresh tasks:', error)
+    } finally {
+      setRefreshing(false)
+    }
   }
 
   /* ================================
      TIMER LOOP (NO AUTO-COMPLETE)
   ================================ */
+  const timerSyncRef = useRef<Map<string, number>>(new Map())
   useEffect(() => {
-    const tick = setInterval(() => {
+    const tick = setInterval(async () => {
       const now = Date.now()
       const today = todayKey()
 
-      persist(prev =>
+      setTasks(prev =>
         prev.map(t => {
           if (
-            t.status !== 'RUNNING' ||
-            t.scheduledDate !== today
-          )
-            return t
+  t.status !== 'RUNNING' ||
+  t.scheduledDate !== today ||
+  t.exhaustedOn === today
+) {
+  return t
+}
 
-          const elapsed = now - (t.lastResumedAt ?? now)
+
+          const elapsed = 1000
           const totalMs = t.durationMinutes * 60_000
           const prevRemaining = t.remainingMs ?? totalMs
           const nextRemaining = Math.max(
@@ -193,33 +205,49 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
 
           // 📊 focus
           focusRef.current[today] =
-            (focusRef.current[today] ?? 0) +
-            Math.floor(elapsed / 1000)
+            (focusRef.current[today] ?? 0) +1
 
           saveCounter.current++
           if (saveCounter.current >= 10) {
             saveCounter.current = 0
-            saveFocusHistory(focusRef.current)
+            focusApi.updateFocus(today, focusRef.current[today] ?? 0).catch(console.error)
             setFocusHistory({ ...focusRef.current })
           }
 
           // ⏰ TIMER FINISHED (NOT COMPLETED)
           if (nextRemaining === 0) {
             playAlarm()
+            tasksApi.updateTaskTimer(t.id, {
+              remainingMs: 0,
+              status: 'PAUSED',
+              exhaustedOn: today,
+              lastResumedAt: undefined,
+            }).catch(console.error)
+            
             return {
               ...t,
               remainingMs: 0,
               status: 'PAUSED',
               running: false,
               exhaustedOn: today,
-              lastResumedAt: undefined,
+              
             }
+          }
+
+          // Sync with backend every 5 seconds
+          const lastSync = timerSyncRef.current.get(t.id) ?? 0
+          if (now - lastSync > 5000) {
+            timerSyncRef.current.set(t.id, now)
+            tasksApi.updateTaskTimer(t.id, {
+              remainingMs: nextRemaining,
+              lastResumedAt: now,
+            }).catch(console.error)
           }
 
           return {
             ...t,
             remainingMs: nextRemaining,
-            lastResumedAt: now,
+            
           }
         })
       )
@@ -235,250 +263,232 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
   /* ================================
      TIMER CONTROLS
   ================================ */
- const startTask = (task: Task) => {
-  if (
-    task.scheduledDate !== todayKey() ||
-    (task.remainingMs ?? 0) === 0
-  )
-    return
-
-  persist(prev =>
-    prev.map(t =>
-      t.id === task.id
-        ? {
-            ...t,
-            status: 'RUNNING',
-            running: true,
-            lastResumedAt: Date.now(),
-            startedAt: t.startedAt ?? Date.now(),
-          }
-        : {
-            ...t,
-            status:
-              t.status === 'RUNNING' ? 'PAUSED' : t.status,
-            running: false,
-          }
+  const startTask = async (task: Task) => {
+    if (
+      task.scheduledDate !== todayKey() ||
+      (task.remainingMs ?? 0) === 0
     )
-  )
-}
+      return
 
-  const pauseTask = (taskId: string) => {
-    persist(prev =>
-      prev.map(t =>
-        t.id === taskId && t.status === 'RUNNING'
-          ? {
-              ...t,
-              status: 'PAUSED',
-              running: false,
-              lastResumedAt: undefined,
-            }
-          : t
+    try {
+      const updated = await tasksApi.startTask(task.id)
+      setTasks(prev =>
+        prev.map(t => {
+          if (t.id === task.id) {
+            return normalize([updated])[0]
+          }
+          if (t.status === 'RUNNING') {
+            return { ...t, status: 'PAUSED', running: false }
+          }
+          return t
+        })
       )
-    )
+    } catch (error) {
+      console.error('Failed to start task:', error)
+    }
   }
- /* ================================
-   MIDNIGHT ROLLOVER (EXHAUSTED TASKS)
-================================ */
-useEffect(() => {
-  const interval = setInterval(() => {
-    const today = todayKey()
-    const tomorrow = tomorrowKey()
 
-    persist(prev =>
-      prev.map(t => {
-        // Completed tasks NEVER move
-        if (t.status === 'COMPLETED') return t
+  const pauseTask = async (taskId: string) => {
+    try {
+      const updated = await tasksApi.pauseTask(taskId)
+      if (updated) {
+        setTasks(prev =>
+          prev.map(t => (t.id === taskId ? normalize([updated])[0] : t))
+        )
+      }
+    } catch (error) {
+      console.error('Failed to pause task:', error)
+    }
+  }
+  /* ================================
+     MIDNIGHT ROLLOVER (EXHAUSTED TASKS)
+  ================================ */
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const today = todayKey()
+      const tomorrow = tomorrowKey()
 
-        // Move only exhausted tasks from previous day
-        if (
-          t.exhaustedOn &&
-          t.exhaustedOn < today
-        ) {
-          return {
-            ...t,
-            scheduledDate: tomorrow,
-            exhaustedOn: undefined, // reset
+      setTasks(prev => {
+        const updates: Promise<any>[] = []
+        const next = prev.map(t => {
+          // Completed tasks NEVER move
+          if (t.status === 'COMPLETED') return t
+
+          // Move only exhausted tasks from previous day
+          if (t.exhaustedOn && t.exhaustedOn < today) {
+            // Note: Backend update would require task update endpoint
+            // For now, handle in frontend - backend sync happens on refresh
+            return {
+              ...t,
+              scheduledDate: tomorrow,
+              exhaustedOn: undefined,
+            }
           }
-        }
 
-        return t
+          return t
+        })
+        return next
       })
-    )
-  }, 60_000)
+    }, 60_000)
 
-  return () => clearInterval(interval)
-}, [])
-
+    return () => clearInterval(interval)
+  }, [])
 
 
-const resumeTask = (taskId: string) => {
-  const task = tasks.find(t => t.id === taskId)
-  if (
-    task &&
-    task.status !== 'COMPLETED' &&
-    (task.remainingMs ?? 0) > 0 &&
-    task.scheduledDate === todayKey()
-  ) {
-    startTask(task)
+
+  const resumeTask = async (taskId: string) => {
+    const task = tasks.find(t => t.id === taskId)
+    if (
+      task &&
+      task.status !== 'COMPLETED' &&
+      (task.remainingMs ?? 0) > 0 &&
+      task.scheduledDate === todayKey()
+    ) {
+      await startTask(task)
+    }
   }
-}
 
-  const stopTask = (taskId: string) => {
-    pauseTask(taskId)
-    persist(prev =>
-      prev.map(t =>
-        t.id === taskId
-          ? {
-              ...t,
-              remainingMs: t.durationMinutes * 60_000,
-            }
-          : t
+  const stopTask = async (taskId: string) => {
+    await pauseTask(taskId)
+    const task = tasks.find(t => t.id === taskId)
+    if (task) {
+      setTasks(prev =>
+        prev.map(t =>
+          t.id === taskId
+            ? { ...t, remainingMs: t.durationMinutes * 60_000 }
+            : t
+        )
       )
-    )
+      // Sync to backend
+      tasksApi.updateTaskTimer(taskId, {
+        remainingMs: task.durationMinutes * 60_000,
+      }).catch(console.error)
+    }
   }
 
   /* ================================
      CRUD
   ================================ */
-  const addTask = (
+  const addTask = async (
     title: string,
     duration: number,
     category: TaskCategory,
     subtasks: SubTask[] = [],
     scheduledDate?: string
   ) => {
-    persist(prev => [
-      {
-        id: generateId(),
+    try {
+      const newTask = await tasksApi.createTask({
         title,
         durationMinutes: duration,
-        createdAt: Date.now(),
         category,
-        subtasks,
+        subtasks: subtasks.map(st => ({ title: st.title, completed: st.completed })),
         scheduledDate: scheduledDate ?? todayKey(),
-        remainingMs: duration * 60_000,
-        status: 'PAUSED',
-        running: false,
-        completed: false,
-      },
-      ...prev,
-    ])
+      })
+      setTasks(prev => [normalize([newTask])[0], ...prev])
+    } catch (error) {
+      console.error('Failed to add task:', error)
+    }
   }
 
-const updateTask = (
-  id: string,
-  title: string,
-  duration: number,
-  category: TaskCategory,
-  subtasks?: SubTask[]
-) => {
-  persist(prev =>
-    prev.map(t =>
-      t.id === id && t.status !== 'COMPLETED'
-        ? {
-            ...t,
-            title,
-            durationMinutes: duration,
-            category,
-            subtasks: subtasks ?? t.subtasks,
-          }
-        : t
-    )
-  )
-}
+  const updateTask = async (
+    id: string,
+    title: string,
+    duration: number,
+    category: TaskCategory,
+    subtasks?: SubTask[]
+  ) => {
+    try {
+      const task = tasks.find(t => t.id === id)
+      if (!task || task.status === 'COMPLETED') return
 
-
-  const toggleTask = (id: string) => {
-    persist(prev =>
-      prev.map(t =>
-        t.id === id
-          ? {
-              ...t,
-              status: 'COMPLETED',
-              completed: true,
-              running: false,
-              remainingMs: 0,
-            }
-          : t
-      )
-    )
+      const updated = await tasksApi.updateTask(id, {
+        title,
+        durationMinutes: duration,
+        category,
+        subtasks: subtasks ?? task.subtasks,
+      })
+      if (updated) {
+        setTasks(prev =>
+          prev.map(t => (t.id === id ? normalize([updated])[0] : t))
+        )
+      }
+    } catch (error) {
+      console.error('Failed to update task:', error)
+    }
   }
 
-  const deleteTask = (id: string) => {
-    persist(prev => prev.filter(t => t.id !== id))
+  const toggleTask = async (id: string) => {
+    try {
+      const updated = await tasksApi.toggleTask(id)
+      if (updated) {
+        setTasks(prev =>
+          prev.map(t => (t.id === id ? normalize([updated])[0] : t))
+        )
+      }
+    } catch (error) {
+      console.error('Failed to toggle task:', error)
+    }
   }
 
-  const reorderTasks = (next: Task[]) => persist(() => next)
+  const deleteTask = async (id: string) => {
+    try {
+      await tasksApi.deleteTask(id)
+      setTasks(prev => prev.filter(t => t.id !== id))
+    } catch (error) {
+      console.error('Failed to delete task:', error)
+    }
+  }
+
+  const reorderTasks = async (next: Task[]) => {
+    try {
+      const taskIds = next.map(t => t.id)
+      const updated = await tasksApi.reorderTasks(taskIds)
+      setTasks(normalize(updated))
+    } catch (error) {
+      console.error('Failed to reorder tasks:', error)
+    }
+  }
 
   /* ================================
      SUBTASKS
   ================================ */
-  const addSubtask = (taskId: string, title: string) => {
-    persist(prev =>
-      prev.map(t =>
-        t.id === taskId
-          ? {
-              ...t,
-              subtasks: [
-                ...t.subtasks,
-                { id: generateId(), title, completed: false },
-              ],
-            }
-          : t
-      )
-    )
-  }
-
-  const recalcTaskCompletion = (task: Task): Task => {
-  if (task.subtasks.length === 0) return task
-
-  const allDone = task.subtasks.every(st => st.completed)
-
-  if (allDone && task.status !== 'COMPLETED') {
-    return {
-      ...task,
-      status: 'COMPLETED',
-      completed: true,
-      running: false,
-      remainingMs: 0,
+  const addSubtask = async (taskId: string, title: string) => {
+    try {
+      const updated = await tasksApi.addSubtask(taskId, title)
+      if (updated) {
+        setTasks(prev =>
+          prev.map(t => (t.id === taskId ? normalize([updated])[0] : t))
+        )
+      }
+    } catch (error) {
+      console.error('Failed to add subtask:', error)
     }
   }
 
-  return task
-}
+  const toggleSubtask = async (taskId: string, subtaskId: string) => {
+    try {
+      const updated = await tasksApi.toggleSubtask(taskId, subtaskId)
+      if (updated) {
+        setTasks(prev =>
+          prev.map(t => (t.id === taskId ? normalize([updated])[0] : t))
+        )
+      }
+    } catch (error) {
+      console.error('Failed to toggle subtask:', error)
+    }
+  }
 
-
-const toggleSubtask = (taskId: string, subtaskId: string) => {
-  persist(prev =>
-    prev.map(task => {
-      if (task.id !== taskId) return task
-
-      const subtasks = task.subtasks.map(st =>
-        st.id === subtaskId
-          ? { ...st, completed: !st.completed }
-          : st
-      )
-
-      return recalcTaskCompletion({
-        ...task,
-        subtasks,
-      })
-    })
-  )
-}
-
-
-  const deleteSubtask = (taskId: string, subtaskId: string) => {
-    persist(prev =>
-      prev.map(t =>
-        t.id === taskId
-          ? {
-              ...t,
-              subtasks: t.subtasks.filter(st => st.id !== subtaskId),
-            }
-          : t
-      )
-    )
+  const deleteSubtask = async (taskId: string, subtaskId: string) => {
+    try {
+      const updated = await tasksApi.deleteSubtask(taskId, subtaskId)
+      if (updated) {
+        setTasks(prev =>
+          prev.map(t => (t.id === taskId ? normalize([updated])[0] : t))
+        )
+      }
+    } catch (error) {
+      console.error('Failed to delete subtask:', error)
+    }
   }
 
   /* ================================
